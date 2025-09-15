@@ -1,0 +1,15 @@
+{
+  "name": "naver-blog-electron-app",
+  "version": "1.0.0",
+  "description": "Naver Blog Electron application with webview and cookie authentication",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "electron src/main.js"
+  },
+  "keywords": ["electron", "naver", "blog", "webview"],
+  "author": "nest",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}
