@@ -46,6 +46,10 @@ body{margin:0;line-height:inherit}
 .space-y-2>:not([hidden])~:not([hidden]){margin-top:0.5rem}
 .input{flex-shrink:1;height:3rem;padding-left:1rem;padding-right:1rem;font-size:1rem;line-height:2;border-width:1px;border-color:transparent;background-color:oklch(var(--b1)/var(--tw-bg-opacity));border-radius:var(--rounded-btn,0.5rem)}
 .input-sm{height:2rem;padding-left:0.75rem;padding-right:0.75rem;font-size:0.875rem}
+.textarea{min-height:3rem;padding:0.75rem;font-size:0.875rem;line-height:1.25;border-width:1px;border-color:transparent;background-color:oklch(var(--b1)/var(--tw-bg-opacity));border-radius:var(--rounded-btn,0.5rem);resize:vertical}
+.textarea-sm{min-height:2rem;padding:0.5rem;font-size:0.75rem}
+.h-32{height:8rem}
+.resize-none{resize:none}
 .w-full{width:100%}
 .gap-1{gap:0.25rem}
 .menu{display:flex;flex-direction:column;flex-wrap:wrap;font-size:0.875rem;padding:0.5rem}

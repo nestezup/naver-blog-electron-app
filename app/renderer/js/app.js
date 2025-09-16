@@ -68,6 +68,15 @@ class App {
             this.goToMyBlog()
         })
 
+        // Markdown post creation
+        document.getElementById('createPostFromMarkdown').addEventListener('click', () => {
+            this.createPostFromMarkdown()
+        })
+
+        document.getElementById('previewMarkdown').addEventListener('click', () => {
+            this.previewMarkdown()
+        })
+
         // Load saved blog ID on startup (with delay for DOM)
         setTimeout(() => {
             this.loadSavedBlogId()
@@ -778,6 +787,273 @@ class App {
         const blogUrl = `https://blog.naver.com/${this.userBlogId}`
         console.log('Navigating to user blog:', blogUrl)
         this.webview.src = blogUrl
+    }
+
+    // Markdown Functions
+    previewMarkdown() {
+        const markdownInput = document.getElementById('markdownInput')
+        const markdown = markdownInput.value.trim()
+
+        if (!markdown) {
+            alert('마크다운 내용을 입력해주세요.')
+            return
+        }
+
+        const parsed = this.parseMarkdown(markdown)
+        console.log('Parsed markdown:', parsed)
+        alert(`파싱된 결과:\n제목: ${parsed.title}\n단락 수: ${parsed.paragraphs.length}`)
+    }
+
+    async createPostFromMarkdown() {
+        if (!this.isLoggedIn) {
+            alert('먼저 로그인해주세요.')
+            return
+        }
+
+        const markdownInput = document.getElementById('markdownInput')
+        const markdown = markdownInput.value.trim()
+
+        if (!markdown) {
+            alert('마크다운 내용을 입력해주세요.')
+            return
+        }
+
+        console.log('Creating post from markdown...')
+
+        const parsed = this.parseMarkdown(markdown)
+        const naverBlogData = this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
+
+        console.log('Naver blog data:', naverBlogData)
+
+        try {
+            const result = await this.sendBlogAPIRequestWithData(naverBlogData)
+            console.log('Markdown post creation result:', result)
+
+            if (result.success) {
+                alert('마크다운 글이 성공적으로 작성되었습니다!')
+                markdownInput.value = '' // 입력 필드 초기화
+            } else {
+                alert('글 작성에 실패했습니다: ' + result.message)
+            }
+        } catch (error) {
+            console.error('Markdown post creation error:', error)
+            alert('글 작성 중 오류가 발생했습니다: ' + error.message)
+        }
+    }
+
+    parseMarkdown(markdown) {
+        const lines = markdown.split('\n')
+        let title = '마크다운 글'
+        const paragraphs = []
+        let currentParagraph = ''
+        let isInQuote = false
+        let quoteContent = ''
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim()
+
+            // 제목 처리 (# 으로 시작)
+            if (line.startsWith('# ') && i === 0) {
+                title = line.substring(2).trim()
+                continue
+            }
+
+            // 인용구 처리 (> 으로 시작)
+            if (line.startsWith('> ')) {
+                if (currentParagraph) {
+                    paragraphs.push({ type: 'text', content: currentParagraph.trim() })
+                    currentParagraph = ''
+                }
+                quoteContent = line.substring(2).trim()
+                paragraphs.push({ type: 'quote', content: quoteContent })
+                continue
+            }
+
+            // 빈 줄 처리
+            if (line === '') {
+                if (currentParagraph) {
+                    paragraphs.push({ type: 'text', content: currentParagraph.trim() })
+                    currentParagraph = ''
+                }
+                continue
+            }
+
+            // 일반 텍스트
+            if (currentParagraph) {
+                currentParagraph += ' '
+            }
+            currentParagraph += line
+        }
+
+        // 마지막 단락 처리
+        if (currentParagraph) {
+            paragraphs.push({ type: 'text', content: currentParagraph.trim() })
+        }
+
+        return { title, paragraphs }
+    }
+
+    convertToNaverBlogFormat(title, paragraphs) {
+        const components = []
+
+        // 제목 컴포넌트
+        components.push({
+            id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+            layout: "default",
+            title: [{
+                id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                nodes: [{
+                    id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                    value: title,
+                    style: {
+                        fontFamily: "nanumbareunhipi",
+                        "@ctype": "nodeStyle"
+                    },
+                    "@ctype": "textNode"
+                }],
+                "@ctype": "paragraph"
+            }],
+            subTitle: null,
+            align: "left",
+            "@ctype": "documentTitle"
+        })
+
+        // 단락 컴포넌트들
+        for (const paragraph of paragraphs) {
+            if (paragraph.type === 'quote') {
+                // 인용구 컴포넌트
+                components.push({
+                    id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                    layout: "quotation_line",
+                    value: [{
+                        id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                        nodes: [{
+                            id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                            value: paragraph.content,
+                            "@ctype": "textNode"
+                        }],
+                        "@ctype": "paragraph"
+                    }],
+                    source: null,
+                    "@ctype": "quotation"
+                })
+            } else {
+                // 일반 텍스트 컴포넌트
+                const sentences = this.splitIntoSentences(paragraph.content)
+                const textParagraphs = sentences.map(sentence => ({
+                    id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                    nodes: [{
+                        id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                        value: sentence,
+                        style: {
+                            fontFamily: "nanumbareunhipi",
+                            "@ctype": "nodeStyle"
+                        },
+                        "@ctype": "textNode"
+                    }],
+                    "@ctype": "paragraph"
+                }))
+
+                components.push({
+                    id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                    layout: "default",
+                    value: textParagraphs,
+                    "@ctype": "text"
+                })
+            }
+        }
+
+        return components
+    }
+
+    splitIntoSentences(text) {
+        // 간단한 문장 분리 (마침표, 느낌표, 물음표 기준)
+        const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0)
+        return sentences.length > 0 ? sentences : [text]
+    }
+
+    async sendBlogAPIRequestWithData(components) {
+        // 동적으로 블로그 ID 확보
+        let blogId = this.userBlogId || null
+        if (!blogId && this.webview) {
+            try {
+                blogId = await this.webview.executeJavaScript(`(function(){
+                    try {
+                        const systemPages = ['PostView.naver', 'RabbitWrite.naver', 'postwrite', 'BlogHome.naver', 'BlogMenuBar.naver', 'BlogView.naver'];
+
+                        // 일반 블로그 URL에서 추출
+                        const m = (window.location.href || '').match(/blog\\.naver\\.com\\/([^\\/\\?]+)/);
+                        if (m && m[1] && !systemPages.includes(m[1])) {
+                            return m[1];
+                        }
+
+                        // section.blog.naver.com에서 blogId 파라미터 추출
+                        const sectionMatch = (window.location.href || '').match(/section\\.blog\\.naver\\.com.*[?&]blogId=([a-zA-Z0-9_-]+)/);
+                        if (sectionMatch && sectionMatch[1]) {
+                            return sectionMatch[1];
+                        }
+
+                        return null;
+                    } catch(e){ return null; }
+                })();`)
+            } catch (_) {
+                blogId = null
+            }
+        }
+
+        if (!blogId) {
+            return { success: false, message: '블로그 ID를 찾을 수 없습니다. 블로그 홈으로 이동한 뒤 다시 시도해주세요.' }
+        }
+
+        // RabbitWrite API용 document 구조 (마크다운에서 변환)
+        const documentModel = {
+            documentId: "",  // 새 글은 빈 문자열
+            document: {
+                version: "2.8.10",
+                theme: "default",
+                language: "ko-KR",
+                id: this.generateId(),
+                di: {
+                    dif: false,
+                    dio: [
+                        {
+                            dis: "N",
+                            dia: {
+                                t: 0,
+                                p: 0,
+                                st: 495,
+                                sk: 102
+                            }
+                        }
+                    ]
+                },
+                components: components
+            }
+        }
+
+        const populationParams = {
+            configuration: {
+                openType: 0,
+                commentYn: false,
+                scrapYn: false,
+                allowHtml: false,
+                hideTitle: false
+            },
+            editorSource: "EPJG7EJse3NuChiZasrm8g=="
+        }
+
+        const requestData = {
+            blogId: blogId,
+            documentModel: JSON.stringify(documentModel),
+            mediaResources: JSON.stringify({ image: [], video: [], file: [] }),
+            populationParams: JSON.stringify(populationParams),
+            productApiVersion: 'v1'
+        }
+
+        console.log('Sending markdown API request with data:', requestData)
+
+        // WebView에서 fetch 요청 (마크다운으로 작성)
+        return await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData, { blogId })
     }
 }
 

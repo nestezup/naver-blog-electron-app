@@ -101,9 +101,23 @@
                     </div>
                 </div>
             </div>
+            <div class="p-4 border-b">
+                <h3 class="text-sm font-semibold mb-2">글 작성</h3>
+                <div class="space-y-2">
+                    <textarea
+                        id="markdownInput"
+                        placeholder="마크다운 내용을 입력하세요..."
+                        class="textarea textarea-sm w-full h-32 resize-none"
+                        rows="6"></textarea>
+                    <div class="flex gap-1">
+                        <button id="previewMarkdown" class="btn btn-xs btn-outline flex-1">미리보기</button>
+                        <button id="createPostFromMarkdown" class="btn btn-xs btn-primary flex-1">마크다운으로 작성</button>
+                    </div>
+                </div>
+            </div>
             <div class="p-4">
                 <ul class="menu">
-                    <li><a id="createPost" href="#" class="cursor-pointer">새 글 작성</a></li>
+                    <li><a id="createPost" href="#" class="cursor-pointer">테스트 글 작성</a></li>
                     <li><a>글 목록</a></li>
                     <li><a>설정</a></li>
                 </ul>
