@@ -6,6 +6,7 @@ class App {
         this.sidebarOpen = false
         this.cookies = {}
         this.isLoggedIn = false
+        this.userBlogId = null
         this.init()
     }
 
@@ -57,6 +58,20 @@ class App {
         document.getElementById('refreshCookies').addEventListener('click', () => {
             this.extractCookies()
         })
+
+        // Blog ID management
+        document.getElementById('saveBlogId').addEventListener('click', () => {
+            this.saveBlogId()
+        })
+
+        document.getElementById('goToMyBlog').addEventListener('click', () => {
+            this.goToMyBlog()
+        })
+
+        // Load saved blog ID on startup (with delay for DOM)
+        setTimeout(() => {
+            this.loadSavedBlogId()
+        }, 100)
     }
 
     setupWebView() {
@@ -118,17 +133,55 @@ class App {
                 this.cookies = this.parseCookies(cookieString)
                 console.log('All parsed cookies:', Object.keys(this.cookies))
 
-                // 쿠키가 있으면 로그인으로 처리 (간단하게)
-                this.isLoggedIn = Object.keys(this.cookies).length > 0
+                // 실제 로그인/로그아웃 테스트 결과 기반 로그인 감지
+                // 로그인시에만 존재: NID_SES, nid_inf
+                // 항상 존재: NAC, NACT, BA_DEVICE, NNB, SRT30, SRT5
+                const loginRequiredCookies = ['NID_SES', 'nid_inf']
 
-                console.log('Login status:', this.isLoggedIn)
+                const hasLoginCookies = loginRequiredCookies.every(cookieName =>
+                    this.cookies[cookieName] && this.cookies[cookieName].length > 0
+                )
 
-                // URL에서 사용자 블로그 ID 추출
+                this.isLoggedIn = hasLoginCookies
+
+                console.log('Required login cookies check:')
+                loginRequiredCookies.forEach(cookie => {
+                    const exists = !!(this.cookies[cookie] && this.cookies[cookie].length > 0)
+                    console.log(`  ${cookie}: ${exists ? 'PRESENT' : 'MISSING'}`)
+                })
+                console.log('Login status (accurate detection):', this.isLoggedIn)
+
+                // URL에서 사용자 블로그 ID 추출 (https://blog.naver.com/nest4000 형태)
                 const currentUrl = this.webview.getURL()
-                const urlMatch = currentUrl.match(/blog\.naver\.com\/([^\/\?]+)/)
-                if (urlMatch && urlMatch[1] !== 'PostView.naver' && urlMatch[1] !== 'RabbitWrite.naver') {
-                    this.userBlogId = urlMatch[1]
-                    console.log('User blog ID from URL:', this.userBlogId)
+                console.log('Current URL for blog ID extraction:', currentUrl)
+
+                // 블로그 ID 패턴 매칭 개선 (시스템 페이지 제외)
+                const systemPages = [
+                    'PostView.naver', 'RabbitWrite.naver', 'postwrite',
+                    'BlogHome.naver', 'BlogMenuBar.naver', 'BlogView.naver'
+                ]
+
+                let detectedBlogId = null
+
+                // 1. 일반 블로그 URL: https://blog.naver.com/nest4000
+                const generalBlogMatch = currentUrl.match(/blog\.naver\.com\/([a-zA-Z0-9_-]+)(?:\/|$|\?)/)
+                if (generalBlogMatch && generalBlogMatch[1] && !systemPages.includes(generalBlogMatch[1])) {
+                    detectedBlogId = generalBlogMatch[1]
+                }
+
+                // 2. section.blog.naver.com에서 blogId 파라미터로 추출
+                if (!detectedBlogId) {
+                    const sectionMatch = currentUrl.match(/section\.blog\.naver\.com.*[?&]blogId=([a-zA-Z0-9_-]+)/)
+                    if (sectionMatch && sectionMatch[1]) {
+                        detectedBlogId = sectionMatch[1]
+                    }
+                }
+
+                if (detectedBlogId) {
+                    this.userBlogId = detectedBlogId
+                    console.log('User blog ID detected:', this.userBlogId)
+                } else {
+                    console.log('No blog ID detected from URL')
                 }
             } else {
                 console.log('No cookies found')
@@ -217,10 +270,7 @@ class App {
         const currentURL = this.webview.getURL()
         console.log('Current WebView URL:', currentURL)
 
-        if (!currentURL.includes('blog.naver.com')) {
-            alert('네이버 블로그 페이지에서 시도해주세요.\n현재 URL: ' + currentURL)
-            return
-        }
+        // 도메인 자동 전환은 요청 시 내부에서 처리합니다.
 
         // Simple test post data
         const postData = {
@@ -245,7 +295,37 @@ class App {
     }
 
     async sendBlogAPIRequest(postData) {
-        const blogId = 'nest4000'
+        // 동적으로 블로그 ID 확보 (시스템 페이지 제외)
+        let blogId = this.userBlogId || null
+        if (!blogId && this.webview) {
+            try {
+                blogId = await this.webview.executeJavaScript(`(function(){
+                    try {
+                        const systemPages = ['PostView.naver', 'RabbitWrite.naver', 'postwrite', 'BlogHome.naver', 'BlogMenuBar.naver', 'BlogView.naver'];
+
+                        // 일반 블로그 URL에서 추출
+                        const m = (window.location.href || '').match(/blog\\.naver\\.com\\/([^\\/\\?]+)/);
+                        if (m && m[1] && !systemPages.includes(m[1])) {
+                            return m[1];
+                        }
+
+                        // section.blog.naver.com에서 blogId 파라미터 추출
+                        const sectionMatch = (window.location.href || '').match(/section\\.blog\\.naver\\.com.*[?&]blogId=([a-zA-Z0-9_-]+)/);
+                        if (sectionMatch && sectionMatch[1]) {
+                            return sectionMatch[1];
+                        }
+
+                        return null;
+                    } catch(e){ return null; }
+                })();`)
+            } catch (_) {
+                blogId = null
+            }
+        }
+
+        if (!blogId) {
+            return { success: false, message: '블로그 ID를 찾을 수 없습니다. 블로그 홈으로 이동한 뒤 다시 시도해주세요.' }
+        }
 
         // RabbitWrite API용 document 구조 (새 글 작성)
         const documentModel = {
@@ -311,7 +391,7 @@ class App {
         console.log('Sending API request with data:', requestData)
 
         // WebView에서 fetch 요청 (새 글 작성 API)
-        return await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData)
+        return await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData, { blogId })
     }
 
     async submitFormInWebview(url, data) {
@@ -375,7 +455,7 @@ class App {
         }
     }
 
-    async makeRequestFromWebview(url, data) {
+    async makeRequestFromWebview(url, data, options = {}) {
         if (!this.webview) {
             return { success: false, message: 'WebView not available' }
         }
@@ -399,8 +479,13 @@ class App {
 
             // If not on blog.naver.com specifically, navigate there
             if (!domainInfo.isNaverDomain || domainInfo.hostname !== 'blog.naver.com') {
-                console.log(`WebView not on blog.naver.com domain (current: ${domainInfo.hostname}), navigating...`);
-                this.webview.src = 'https://blog.naver.com';
+                // blogId가 유효한지 확인 (시스템 페이지가 아닌지)
+                const systemPages = ['PostView.naver', 'RabbitWrite.naver', 'postwrite', 'BlogHome.naver', 'BlogMenuBar.naver', 'BlogView.naver']
+                const validBlogId = options.blogId && !systemPages.includes(options.blogId)
+
+                const target = validBlogId ? `https://blog.naver.com/${options.blogId}` : 'https://blog.naver.com'
+                console.log(`WebView not on blog.naver.com domain (current: ${domainInfo.hostname}), navigating to: ${target}`);
+                this.webview.src = target;
 
                 // Wait for navigation to complete
                 await new Promise((resolve) => {
@@ -423,6 +508,11 @@ class App {
                     };
                 }
             }
+
+            const refererBlogId = options.blogId || this.userBlogId || ''
+            const referer = refererBlogId
+                ? `https://blog.naver.com/${refererBlogId}/postwrite?categoryNo=6`
+                : `https://blog.naver.com/postwrite?categoryNo=6`
 
             const requestScript = `
                 (async function() {
@@ -472,7 +562,7 @@ class App {
                                 'origin': 'https://blog.naver.com',
                                 'pragma': 'no-cache',
                                 'priority': 'u=1, i',
-                                'referer': 'https://blog.naver.com/nest4000/postwrite?categoryNo=6',
+                                'referer': '${referer}',
                                 'sec-ch-ua': '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
                                 'sec-ch-ua-mobile': '?0',
                                 'sec-ch-ua-platform': '"macOS"',
@@ -584,6 +674,110 @@ class App {
             result += chars.charAt(Math.floor(Math.random() * chars.length))
         }
         return result
+    }
+
+    // Blog ID Management Methods
+    saveBlogId() {
+        const blogIdInput = document.getElementById('blogIdInput')
+        const blogId = blogIdInput.value.trim()
+
+        if (!blogId) {
+            alert('블로그 ID를 입력해주세요.')
+            return
+        }
+
+        // 간단한 블로그 ID 유효성 검사
+        if (!/^[a-zA-Z0-9_-]+$/.test(blogId)) {
+            alert('블로그 ID는 영문, 숫자, _, - 만 사용할 수 있습니다.')
+            return
+        }
+
+        try {
+            // localStorage에 저장 (여러 방식으로 시도)
+            localStorage.setItem('userBlogId', blogId)
+
+            // 세션 스토리지에도 백업 저장
+            sessionStorage.setItem('userBlogId', blogId)
+
+            // 메모리에도 저장
+            this.userBlogId = blogId
+
+            console.log('Blog ID saved to localStorage:', blogId)
+            console.log('Blog ID saved to sessionStorage:', blogId)
+            console.log('Blog ID saved to memory:', this.userBlogId)
+
+            // 저장 확인
+            const saved = localStorage.getItem('userBlogId')
+            if (saved === blogId) {
+                alert(`블로그 ID "${blogId}"가 성공적으로 저장되었습니다.`)
+            } else {
+                alert(`저장 실패: localStorage에 저장되지 않았습니다. 메모리에만 저장됩니다.`)
+            }
+
+            // 로그인 상태 업데이트
+            this.updateLoginStatus()
+        } catch (error) {
+            console.error('Storage error:', error)
+            // localStorage 실패시 메모리에만 저장
+            this.userBlogId = blogId
+            alert(`블로그 ID "${blogId}"가 메모리에 저장되었습니다. (영구 저장 실패)`)
+        }
+    }
+
+    loadSavedBlogId() {
+        try {
+            // localStorage에서 먼저 시도
+            let savedBlogId = localStorage.getItem('userBlogId')
+
+            // localStorage가 실패하면 sessionStorage에서 시도
+            if (!savedBlogId) {
+                savedBlogId = sessionStorage.getItem('userBlogId')
+            }
+
+            if (savedBlogId) {
+                const blogIdInput = document.getElementById('blogIdInput')
+                if (blogIdInput) {
+                    blogIdInput.value = savedBlogId
+                }
+                this.userBlogId = savedBlogId
+                console.log('Loaded saved blog ID:', savedBlogId)
+                console.log('From localStorage:', localStorage.getItem('userBlogId'))
+                console.log('From sessionStorage:', sessionStorage.getItem('userBlogId'))
+            } else {
+                console.log('No saved blog ID found')
+            }
+        } catch (error) {
+            console.error('Error loading saved blog ID:', error)
+        }
+    }
+
+    goToMyBlog() {
+        // 먼저 최신 저장된 블로그 ID를 다시 로드
+        this.loadSavedBlogId()
+
+        console.log('Current userBlogId in memory:', this.userBlogId)
+        console.log('localStorage userBlogId:', localStorage.getItem('userBlogId'))
+        console.log('sessionStorage userBlogId:', sessionStorage.getItem('userBlogId'))
+
+        if (!this.userBlogId) {
+            const storedId = localStorage.getItem('userBlogId') || sessionStorage.getItem('userBlogId')
+            if (storedId) {
+                this.userBlogId = storedId
+                console.log('Found stored blog ID, setting to memory:', storedId)
+            } else {
+                alert('먼저 블로그 ID를 입력하고 저장해주세요.')
+                return
+            }
+        }
+
+        if (!this.webview) {
+            alert('WebView가 준비되지 않았습니다.')
+            return
+        }
+
+        const blogUrl = `https://blog.naver.com/${this.userBlogId}`
+        console.log('Navigating to user blog:', blogUrl)
+        this.webview.src = blogUrl
     }
 }
 

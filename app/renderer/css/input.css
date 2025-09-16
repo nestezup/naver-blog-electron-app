@@ -1,0 +1,84 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+/* Custom styles for Electron app */
+body {
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+}
+
+webview {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+.webview-container {
+    position: relative;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+}
+
+#loadingOverlay {
+    position: absolute;
+    inset: 0;
+    background: white;
+    z-index: 10;
+}
+
+#loadingOverlay.hidden {
+    display: none;
+}
+
+.loading-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 2px solid #e5e7eb;
+    border-top: 2px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 높이 문제 해결 - 명확한 레이아웃 */
+body .main-container {
+    height: calc(100vh - 4rem);
+    display: flex;
+}
+
+body .sidebar {
+    width: 320px;
+    flex-shrink: 0;
+    display: block;
+    position: relative;
+    transform: none;
+}
+
+body .webview-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.webview-section {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+}
+
+webview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
