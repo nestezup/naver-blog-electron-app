@@ -756,133 +756,170 @@ class App {
     }
 
     async fetchLinkPreview(url) {
-        // 링크 미리보기 정보 가져오기 (제공해주신 curl 예시 기반)
+        // 링크 미리보기 정보 가져오기 (네이버 공식 API 사용)
         try {
             console.log('Fetching link preview for:', url);
 
-            // WebView를 통해 요청하여 CORS 문제 회피
-            // 도메인 추출 함수를 인라인으로 포함
-            const extractDomainFromUrl = (url) => {
-                try {
-                    const domain = new URL(url).hostname.replace('www.', '');
-                    return domain;
-                } catch (e) {
-                    return url;
-                }
-            };
+            // 1. 네이버 oglink API 호출 (제공해주신 curl 예시 기반)
+            const oglinkResult = await this.fetchNaverOglinkAPI(url);
+            if (oglinkResult && !oglinkResult.error) {
+                console.log('Naver oglink API result:', oglinkResult);
+                return oglinkResult;
+            }
 
+            // 2. fallback으로 단순 링크 변환 API 호출
+            console.log('Falling back to simple link conversion...');
+            const simpleResult = await this.fetchSimpleLinkConversion(url);
+            if (simpleResult && !simpleResult.error) {
+                console.log('Simple link conversion result:', simpleResult);
+                return simpleResult;
+            }
+
+            // 3. 최후의 fallback
+            console.log('Using fallback preview...');
+            return this.generateFallbackPreview(url);
+
+        } catch (error) {
+            console.error('Error in fetchLinkPreview:', error);
+            return this.generateFallbackPreview(url);
+        }
+    }
+
+    async fetchNaverOglinkAPI(url) {
+        // 네이버 oglink API 호출 (임베딩용)
+        try {
             const jsCode = `
                 (async () => {
                     try {
-                        const response = await fetch('${url}', {
+                        const encodedUrl = encodeURIComponent('${url}');
+                        const apiUrl = 'https://platform.editor.naver.com/api/blogpc001/v1/oglink?url=' + encodedUrl;
+
+                        console.log('Calling oglink API:', apiUrl);
+
+                        const response = await fetch(apiUrl, {
                             method: 'GET',
                             headers: {
-                                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
-                            }
+                                'accept': 'application/json',
+                                'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                                'cache-control': 'no-cache',
+                                'origin': 'https://blog.naver.com',
+                                'referer': 'https://blog.naver.com/nest4000/postwrite',
+                                'sec-app-id': 'SE-f3ea5641-ec92-4525-80d0-24acfeaa81b1',
+                                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+                            },
+                            credentials: 'same-origin'
                         });
 
                         if (!response.ok) {
+                            console.log('oglink API failed:', response.status, response.statusText);
                             return { error: 'HTTP ' + response.status };
                         }
 
-                        const html = await response.text();
-                        const parser = new DOMParser();
-                        const doc = parser.parseFromString(html, 'text/html');
+                        const data = await response.json();
+                        console.log('oglink API response:', data);
 
-                        // 도메인 추출 함수
-                        const extractDomainFromUrl = (url) => {
-                            try {
-                                const domain = new URL(url).hostname.replace('www.', '');
-                                return domain;
-                            } catch (e) {
-                                return url;
-                            }
-                        };
+                        if (data && data.result) {
+                            const domain = new URL('${url}').hostname.replace('www.', '');
 
-                        // 메타태그 추출 함수
-                        const getMetaTag = (property) => {
-                            const tag = doc.querySelector(\`meta[property="\${property}"]\`) ||
-                                       doc.querySelector(\`meta[name="\${property}"]\`);
-                            return tag ? tag.getAttribute('content') : null;
-                        };
-
-                        // Open Graph 정보 추출
-                        const ogTitle = getMetaTag('og:title');
-                        const ogDescription = getMetaTag('og:description');
-                        const ogImage = getMetaTag('og:image');
-                        const ogUrl = getMetaTag('og:url') || url;
-                        const ogSiteName = getMetaTag('og:site_name');
-
-                        // 기본 정보 추출
-                        const title = ogTitle ||
-                                    doc.querySelector('title')?.textContent ||
-                                    getMetaTag('title') ||
-                                    extractDomainFromUrl(url);
-
-                        const description = ogDescription || getMetaTag('description') || '';
-
-                        // 도메인 추출
-                        const domain = extractDomainFromUrl(ogUrl);
-
-                        // 썸네일 처리 (curl 예시 기반)
-                        let thumbnailSrc = ogImage;
-                        if (!thumbnailSrc) {
-                            // YouTube 기본 이미지 처리
-                            if (domain.includes('youtube.com')) {
-                                thumbnailSrc = "https://www.youtube.com/img/desktop/yt_1200.png";
-                            } else {
-                                thumbnailSrc = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128";
-                            }
+                            return {
+                                title: data.result.title || domain,
+                                domain: domain,
+                                url: '${url}',
+                                thumbnail: {
+                                    src: data.result.imageUrl || "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128",
+                                    width: 1200,
+                                    height: 1200,
+                                    "@ctype": "thumbnail"
+                                },
+                                description: data.result.description || '',
+                                video: data.result.video || false,
+                                oglinkSign: data.result.oglinkSign || "Ub2GJaay33GnzOcInKXBCIubN2t5LrWC7is7G-rP_-A__v1.0",
+                                siteName: data.result.siteName || domain
+                            };
                         }
 
-                        const thumbnail = {
-                            src: thumbnailSrc,
-                            width: 1200,
-                            height: 1200,
-                            "@ctype": "thumbnail"
-                        };
-
-                        // video 여부 확인
-                        let isVideo = false;
-                        if (domain.includes('youtube.com') || domain.includes('vimeo.com') || domain.includes('dailymotion.com')) {
-                            isVideo = true;
-                        }
-
-                        // 사이트별 기본 설명
-                        let siteDescription = description;
-                        if (!siteDescription && domain.includes('youtube.com')) {
-                            siteDescription = "YouTube에서 마음에 드는 동영상과 음악을 감상하고, 직접 만든 콘텐츠를 업로드하여 친구, 가족뿐만 아니라 전 세계 사람들과 콘텐츠를 공유할 수 있습니다.";
-                        }
-
-                        return {
-                            title: title,
-                            domain: domain,
-                            url: ogUrl,
-                            thumbnail: thumbnail,
-                            description: siteDescription,
-                            video: isVideo,
-                            siteName: ogSiteName || domain
-                        };
+                        return { error: 'No result in oglink response' };
 
                     } catch (error) {
+                        console.log('oglink API error:', error.message);
                         return { error: error.message };
                     }
                 })()
             `;
 
             const result = await this.webview.executeJavaScript(jsCode);
-            console.log('Link preview result:', result);
-
-            if (result.error) {
-                console.error('Error fetching link preview:', result.error);
-                return this.generateFallbackPreview(url);
-            }
-
             return result;
 
         } catch (error) {
-            console.error('Error in fetchLinkPreview:', error);
-            return this.generateFallbackPreview(url);
+            console.error('Error in fetchNaverOglinkAPI:', error);
+            return { error: error.message };
+        }
+    }
+
+    async fetchSimpleLinkConversion(url) {
+        // 단순 링크 변환 API 호출
+        try {
+            const jsCode = `
+                (async () => {
+                    try {
+                        const linkHtml = '<a href="${url}">${url}</a>';
+
+                        const response = await fetch('https://upconvert.editor.naver.com/blog/html/components?documentWidth=693&userId=nest4000', {
+                            method: 'POST',
+                            headers: {
+                                'accept': 'application/json',
+                                'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                                'cache-control': 'no-cache',
+                                'content-type': 'text/plain',
+                                'origin': 'https://blog.naver.com',
+                                'referer': 'https://blog.naver.com/nest4000/postwrite',
+                                'sec-app-id': 'SE-f3ea5641-ec92-4525-80d0-24acfeaa81b1',
+                                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+                            },
+                            body: linkHtml,
+                            credentials: 'same-origin'
+                        });
+
+                        if (!response.ok) {
+                            console.log('Simple link API failed:', response.status, response.statusText);
+                            return { error: 'HTTP ' + response.status };
+                        }
+
+                        const data = await response.json();
+                        console.log('Simple link API response:', data);
+
+                        // 단순 링크 결과를 oglink 형식으로 변환
+                        const domain = new URL('${url}').hostname.replace('www.', '');
+
+                        return {
+                            title: domain,
+                            domain: domain,
+                            url: '${url}',
+                            thumbnail: {
+                                src: "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128",
+                                width: 1200,
+                                height: 1200,
+                                "@ctype": "thumbnail"
+                            },
+                            description: '',
+                            video: false,
+                            oglinkSign: "Ub2GJaay33GnzOcInKXBCIubN2t5LrWC7is7G-rP_-A__v1.0",
+                            siteName: domain
+                        };
+
+                    } catch (error) {
+                        console.log('Simple link API error:', error.message);
+                        return { error: error.message };
+                    }
+                })()
+            `;
+
+            const result = await this.webview.executeJavaScript(jsCode);
+            return result;
+
+        } catch (error) {
+            console.error('Error in fetchSimpleLinkConversion:', error);
+            return { error: error.message };
         }
     }
 
