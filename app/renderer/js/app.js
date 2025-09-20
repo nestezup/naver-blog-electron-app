@@ -1371,6 +1371,37 @@ class App {
                 continue
             }
 
+            // 리스트 처리 (- 항목 또는 1. 항목)
+            const listMatch = line.match(/^([ \t]*)([-*]|\d+\.)\s+(.+)$/)
+            if (listMatch) {
+                if (currentParagraph) {
+                    paragraphs.push({ type: 'text', content: currentParagraph.trim() })
+                    currentParagraph = ''
+                }
+
+                const indent = listMatch[1].length
+                const listMarker = listMatch[2]
+                const itemText = listMatch[3].trim()
+
+                // 리스트 레벨 계산 (2 spaces per level)
+                const level = Math.floor(indent / 2)
+
+                // 리스트 타입 결정
+                const listType = listMarker === '-' || listMarker === '*' ? 'bullet' : 'number'
+
+                // 리스트 항목의 스타일된 텍스트 파싱
+                const styledNodes = this.parseStyledText(itemText)
+
+                paragraphs.push({
+                    type: 'list',
+                    content: itemText,
+                    listType: listType,
+                    level: level,
+                    styledNodes: styledNodes
+                })
+                continue
+            }
+
             // 링크 처리 ([텍스트](URL))
             const linkMatch = line.match(/\[([^\]]+)\]\(([^)]+)\)/)
             if (linkMatch) {
@@ -1632,6 +1663,59 @@ class App {
                     },
                     ai: false,
                     "@ctype": "image"
+                })
+            } else if (paragraph.type === 'list') {
+                // 리스트 컴포넌트
+                console.log('Processing list:', paragraph);
+
+                // 스타일이 적용된 텍스트 노드 생성 (볼드, 색상 지원)
+                const styledNodes = paragraph.styledNodes || [{ type: 'normal', text: paragraph.content }]
+                const nodes = []
+
+                for (const node of styledNodes) {
+                    const style = {
+                        fontFamily: "nanumbareunhipi",
+                        "@ctype": "nodeStyle"
+                    }
+
+                    if (node.type === 'bold') {
+                        style.fontWeight = "bold"
+                    } else if (node.type === 'color') {
+                        style.color = node.color
+                    }
+
+                    nodes.push({
+                        id: this.generateSEId(),
+                        value: node.text,
+                        style: style,
+                        "@ctype": "textNode"
+                    })
+                }
+
+                // 리스트 스타일 생성
+                const listStyle = {
+                    type: paragraph.listType === 'bullet' ? "bullet" : "number",
+                    level: paragraph.level || 0,
+                    "@ctype": "paragraphListStyle"
+                }
+
+                // 전체 단락 스타일
+                const paragraphStyle = {
+                    dropCap: false,
+                    list: listStyle,
+                    "@ctype": "paragraphStyle"
+                }
+
+                components.push({
+                    id: this.generateSEId(),
+                    layout: "default",
+                    value: [{
+                        id: this.generateSEId(),
+                        nodes: nodes,
+                        style: paragraphStyle,
+                        "@ctype": "paragraph"
+                    }],
+                    "@ctype": "text"
                 })
             } else if (paragraph.type === 'link') {
                 // 링크 컴포넌트 - 선택된 옵션에 따라 처리
