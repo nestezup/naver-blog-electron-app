@@ -685,6 +685,20 @@ class App {
         return result
     }
 
+    generateSEId() {
+        // 네이버 형식과 유사한 짧은 hex ID 생성
+        const chars = 'abcdef0123456789'
+        const generateSegment = (length) => {
+            let result = ''
+            for (let i = 0; i < length; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length))
+            }
+            return result
+        }
+
+        return `SE-${generateSegment(8)}-${generateSegment(4)}-${generateSegment(4)}-${generateSegment(4)}-${generateSegment(12)}`
+    }
+
     // Blog ID Management Methods
     saveBlogId() {
         const blogIdInput = document.getElementById('blogIdInput')
@@ -821,13 +835,35 @@ class App {
         console.log('Creating post from markdown...')
 
         const parsed = this.parseMarkdown(markdown)
-        const naverBlogData = this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
 
-        console.log('Naver blog data:', naverBlogData)
+        // sendBlogAPIRequest 형식으로 변환
+        const postData = {
+            title: parsed.title,
+            content: parsed.paragraphs.map(p => p.content).join('\n\n')
+        }
+
+        console.log('Converted post data for sendBlogAPIRequest:', postData)
 
         try {
-            const result = await this.sendBlogAPIRequestWithData(naverBlogData)
+            // 테스트 글 작성과 동일한 방식 사용
+            const result = await this.sendBlogAPIRequest(postData)
             console.log('Markdown post creation result:', result)
+
+            // 응답 내용 상세 분석
+            if (result.data) {
+                try {
+                    const responseData = JSON.parse(result.data.trim())
+                    console.log('Parsed response:', responseData)
+
+                    if (responseData.isSuccess === false) {
+                        console.error('Naver API Error:', responseData.result)
+                        alert(`네이버 API 오류: ${responseData.result}\n\n가능한 원인:\n- 블로그 ID 확인\n- 로그인 상태 확인\n- 블로그 쓰기 권한 확인`)
+                        return
+                    }
+                } catch (parseError) {
+                    console.error('Response parsing error:', parseError)
+                }
+            }
 
             if (result.success) {
                 alert('마크다운 글이 성공적으로 작성되었습니다!')
@@ -846,7 +882,6 @@ class App {
         let title = '마크다운 글'
         const paragraphs = []
         let currentParagraph = ''
-        let isInQuote = false
         let quoteContent = ''
 
         for (let i = 0; i < lines.length; i++) {
@@ -898,12 +933,12 @@ class App {
 
         // 제목 컴포넌트
         components.push({
-            id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+            id: this.generateSEId(),
             layout: "default",
             title: [{
-                id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                id: this.generateSEId(),
                 nodes: [{
-                    id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                    id: this.generateSEId(),
                     value: title,
                     style: {
                         fontFamily: "nanumbareunhipi",
@@ -923,12 +958,12 @@ class App {
             if (paragraph.type === 'quote') {
                 // 인용구 컴포넌트
                 components.push({
-                    id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                    id: this.generateSEId(),
                     layout: "quotation_line",
                     value: [{
-                        id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                        id: this.generateSEId(),
                         nodes: [{
-                            id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                            id: this.generateSEId(),
                             value: paragraph.content,
                             "@ctype": "textNode"
                         }],
@@ -938,24 +973,28 @@ class App {
                     "@ctype": "quotation"
                 })
             } else {
-                // 일반 텍스트 컴포넌트
-                const sentences = this.splitIntoSentences(paragraph.content)
-                const textParagraphs = sentences.map(sentence => ({
-                    id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
-                    nodes: [{
-                        id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
-                        value: sentence,
-                        style: {
-                            fontFamily: "nanumbareunhipi",
-                            "@ctype": "nodeStyle"
-                        },
-                        "@ctype": "textNode"
-                    }],
-                    "@ctype": "paragraph"
-                }))
+                // 일반 텍스트 컴포넌트 - 네이버 형식에 맞게
+                const textParagraphs = this.createParagraphsFromText(paragraph.content)
+
+                // 단락 사이에 빈 줄 추가 (네이버 형식)
+                if (components.length > 1) {
+                    textParagraphs.unshift({
+                        id: this.generateSEId(),
+                        nodes: [{
+                            id: this.generateSEId(),
+                            value: "",
+                            style: {
+                                fontFamily: "nanumbareunhipi",
+                                "@ctype": "nodeStyle"
+                            },
+                            "@ctype": "textNode"
+                        }],
+                        "@ctype": "paragraph"
+                    })
+                }
 
                 components.push({
-                    id: "SE-" + this.generateId().substring(0, 8) + "-" + this.generateId().substring(8, 12) + "-" + this.generateId().substring(12, 16) + "-" + this.generateId().substring(16, 20) + "-" + this.generateId().substring(20),
+                    id: this.generateSEId(),
                     layout: "default",
                     value: textParagraphs,
                     "@ctype": "text"
@@ -967,9 +1006,31 @@ class App {
     }
 
     splitIntoSentences(text) {
-        // 간단한 문장 분리 (마침표, 느낌표, 물음표 기준)
+        // 네이버 형식에 맞게 자연스러운 문장 분리
         const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0)
-        return sentences.length > 0 ? sentences : [text]
+        if (sentences.length > 0) {
+            return sentences
+        }
+        // 마침표가 없는 경우 전체를 하나의 문장으로
+        return [text]
+    }
+
+    // 단락을 여러 문장으로 분리하여 개별 paragraph 생성
+    createParagraphsFromText(text) {
+        const sentences = this.splitIntoSentences(text)
+        return sentences.map(sentence => ({
+            id: this.generateSEId(),
+            nodes: [{
+                id: this.generateSEId(),
+                value: sentence,
+                style: {
+                    fontFamily: "nanumbareunhipi",
+                    "@ctype": "nodeStyle"
+                },
+                "@ctype": "textNode"
+            }],
+            "@ctype": "paragraph"
+        }))
     }
 
     async sendBlogAPIRequestWithData(components) {
@@ -1024,6 +1085,15 @@ class App {
                                 st: 495,
                                 sk: 102
                             }
+                        },
+                        {
+                            dis: "N",
+                            dia: {
+                                t: 0,
+                                p: 0,
+                                st: 37,
+                                sk: 1
+                            }
                         }
                     ]
                 },
@@ -1046,14 +1116,50 @@ class App {
             blogId: blogId,
             documentModel: JSON.stringify(documentModel),
             mediaResources: JSON.stringify({ image: [], video: [], file: [] }),
-            populationParams: JSON.stringify(populationParams),
-            productApiVersion: 'v1'
+            populationParams: JSON.stringify(populationParams)
         }
 
-        console.log('Sending markdown API request with data:', requestData)
+        console.log('=== Markdown API Request Debug ===')
+        console.log('BlogId:', blogId)
+        console.log('Components count:', components.length)
+        console.log('DocumentModel:', documentModel)
+        console.log('RequestData keys:', Object.keys(requestData))
+        console.log('MediaResources:', requestData.mediaResources)
+        console.log('PopulationParams:', requestData.populationParams)
 
-        // WebView에서 fetch 요청 (마크다운으로 작성)
-        return await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData, { blogId })
+        // 먼저 임시 저장을 시도
+        console.log('=== 임시 저장 시도 ===')
+        const tempSaveResult = await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData, { blogId })
+
+        console.log('Temp save result:', tempSaveResult)
+
+        if (tempSaveResult.success && tempSaveResult.data) {
+            try {
+                const tempResponse = JSON.parse(tempSaveResult.data.trim())
+
+                if (tempResponse.isSuccess && tempResponse.result && tempResponse.result.documentId) {
+                    // 임시 저장 성공 시 documentId로 발행 시도
+                    const documentId = tempResponse.result.documentId
+                    console.log('임시 저장 성공, documentId:', documentId)
+
+                    // 발행 요청
+                    const publishData = {
+                        ...requestData,
+                        documentModel: JSON.stringify({
+                            ...JSON.parse(requestData.documentModel),
+                            documentId: documentId
+                        })
+                    }
+
+                    console.log('=== 발행 시도 ===')
+                    return await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', publishData, { blogId })
+                }
+            } catch (parseError) {
+                console.error('Temp save response parsing error:', parseError)
+            }
+        }
+
+        return tempSaveResult
     }
 }
 
