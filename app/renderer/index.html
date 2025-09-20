@@ -109,6 +109,19 @@
                         placeholder="마크다운 내용을 입력하세요..."
                         class="textarea textarea-sm w-full h-32 resize-none"
                         rows="6"></textarea>
+
+                    <!-- 링크 처리 옵션 -->
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text text-xs font-medium">링크 처리 방식</span>
+                        </label>
+                        <select id="linkProcessingOption" class="select select-sm select-bordered w-full">
+                            <option value="upconvert">Upconvert API (권장)</option>
+                            <option value="simple">단순 텍스트 링크</option>
+                            <option value="oglink">OGLink 카드</option>
+                        </select>
+                    </div>
+
                     <div class="flex gap-2">
                         <button id="previewMarkdown" class="btn btn-sm btn-outline flex-1">미리보기</button>
                         <button id="createPostFromMarkdown" class="btn btn-sm btn-primary flex-1">마크다운으로 작성</button>

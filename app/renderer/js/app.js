@@ -756,10 +756,15 @@ class App {
     }
 
     async fetchLinkPreview(url) {
-        // 링크 미리보기 정보 가져오기 (네이버 공식 API 사용)
+        // 링크 미리보기 정보 가져오기 (일단은 fallback으로만 테스트)
         try {
             console.log('Fetching link preview for:', url);
 
+            // 임시로 네이버 API 호출을 생략하고 fallback으로 바로 이동
+            console.log('Using fallback preview for now (API calls temporarily disabled)...');
+            return this.generateFallbackPreview(url);
+
+            /* TODO: API 인증 문제 해결 후 다시 활성화
             // 1. 네이버 oglink API 호출 (제공해주신 curl 예시 기반)
             const oglinkResult = await this.fetchNaverOglinkAPI(url);
             if (oglinkResult && !oglinkResult.error) {
@@ -778,6 +783,7 @@ class App {
             // 3. 최후의 fallback
             console.log('Using fallback preview...');
             return this.generateFallbackPreview(url);
+            */
 
         } catch (error) {
             console.error('Error in fetchLinkPreview:', error);
@@ -920,6 +926,121 @@ class App {
         } catch (error) {
             console.error('Error in fetchSimpleLinkConversion:', error);
             return { error: error.message };
+        }
+    }
+
+    async convertLinkWithUpconvertAPI(linkHtml) {
+        // 네이버 upconvert API로 HTML 링크를 네이버 컴포넌트로 변환
+        try {
+            const jsCode = `
+                (async () => {
+                    try {
+                        // 동적 헤더 값 가져오기
+                        const getCurrentUrl = window.location.href;
+                        const blogIdMatch = getCurrentUrl.match(/blog\\.naver\\.com\\/([^\\/\\?]+)/);
+                        const currentBlogId = blogIdMatch ? blogIdMatch[1] : 'nest4000';
+
+                        // se-app-id 생성
+                        const secAppId = 'SE-' + Math.random().toString(36).substr(2, 32);
+
+                        // 기본 헤더
+                        const headers = {
+                            'accept': 'application/json',
+                            'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                            'cache-control': 'no-cache',
+                            'content-type': 'text/plain',
+                            'origin': 'https://blog.naver.com',
+                            'referer': 'https://blog.naver.com/' + currentBlogId + '/postwrite',
+                            'sec-app-id': secAppId,
+                            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+                        };
+
+                        console.log('Upconvert API headers:', headers);
+
+                        const response = await fetch('https://upconvert.editor.naver.com/blog/html/components?documentWidth=693&userId=' + currentBlogId, {
+                            method: 'POST',
+                            headers: headers,
+                            body: \`${linkHtml}\`,
+                            credentials: 'same-origin'
+                        });
+
+                        if (!response.ok) {
+                            console.log('Upconvert API failed:', response.status, response.statusText);
+                            return null;
+                        }
+
+                        const data = await response.json();
+                        console.log('Upconvert API response:', data);
+                        return data.components || [];
+
+                    } catch (error) {
+                        console.log('Upconvert API error:', error.message);
+                        return null;
+                    }
+                })()
+            `;
+
+            const result = await this.webview.executeJavaScript(jsCode);
+            return result;
+
+        } catch (error) {
+            console.error('Error in convertLinkWithUpconvertAPI:', error);
+            return null;
+        }
+    }
+
+    addSimpleLinkComponent(components, paragraph) {
+        // 단순 텍스트 링크 컴포넌트 추가 (네이버 공식 형식)
+        components.push({
+            id: this.generateSEId(),
+            layout: "default",
+            value: [{
+                id: this.generateSEId(),
+                nodes: [{
+                    id: this.generateSEId(),
+                    value: paragraph.text || paragraph.url,
+                    link: {
+                        "@ctype": "urlLink",
+                        "url": paragraph.url
+                    },
+                    style: {
+                        fontFamily: "nanumbareunhipi",
+                        "@ctype": "nodeStyle"
+                    },
+                    "@ctype": "textNode"
+                }],
+                "@ctype": "paragraph"
+            }],
+            "@ctype": "text"
+        });
+    }
+
+    addOgLinkComponent(components, paragraph) {
+        // OGLink 카드 컴포넌트 추가
+        try {
+            const url = new URL(paragraph.url.startsWith('http') ? paragraph.url : 'https://' + paragraph.url);
+            const domain = url.hostname;
+
+            components.push({
+                id: this.generateSEId(),
+                layout: "default",
+                title: paragraph.text || paragraph.url,
+                domain: domain,
+                link: url.href,
+                thumbnail: {
+                    src: "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128",
+                    width: 128,
+                    height: 128,
+                    "@ctype": "thumbnail"
+                },
+                description: paragraph.text || paragraph.url,
+                video: false,
+                oglinkSign: "fallback_link_" + Date.now(),
+                "@ctype": "oglink"
+            });
+        } catch (error) {
+            console.error('URL parsing error, using simple link:', error);
+            this.addSimpleLinkComponent(components, paragraph);
         }
     }
 
@@ -1084,6 +1205,23 @@ class App {
             return
         }
 
+        // 추가 로그인 상태 확인
+        console.log('Detailed login status check:')
+        console.log('isLoggedIn:', this.isLoggedIn)
+        console.log('userBlogId:', this.userBlogId)
+        console.log('Available cookies:', Object.keys(this.cookies))
+
+        const loginRequiredCookies = ['nid_inf', 'NID_SES']
+        loginRequiredCookies.forEach(cookie => {
+            const exists = !!(this.cookies[cookie] && this.cookies[cookie].length > 0)
+            console.log(`  ${cookie}: ${exists ? 'PRESENT' : 'MISSING'}`)
+        })
+
+        if (!this.userBlogId) {
+            alert('블로그 ID가 설정되지 않았습니다. 사이드바에서 블로그 ID를 입력해주세요.')
+            return
+        }
+
         const markdownInput = document.getElementById('markdownInput')
         const markdown = markdownInput.value.trim()
 
@@ -1099,7 +1237,8 @@ class App {
         console.log('Parsed markdown:', parsed)
 
         // convertToNaverBlogFormat으로 변환하여 components 생성
-        const components = await this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
+        const linkOption = document.getElementById('linkProcessingOption').value;
+        const components = await this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs, linkOption)
         console.log('Converted components:', components)
 
         try {
@@ -1156,12 +1295,22 @@ class App {
 
                     if (responseData.isSuccess === false) {
                         console.error('Naver API Error:', responseData)
+                        console.error('Full error details:', JSON.stringify(responseData, null, 2))
                         const errorMessage = responseData.result ?
                             (typeof responseData.result === 'object' ?
                                 JSON.stringify(responseData.result, null, 2) :
                                 responseData.result) :
                             '알 수 없는 오류'
-                        alert(`네이버 API 오류:\n${errorMessage}\n\n가능한 원인:\n- 블로그 ID 확인\n- 로그인 상태 확인\n- 블로그 쓰기 권한 확인`)
+
+                        // 추가 디버깅 정보
+                        console.error('Login status at error time:', {
+                            isLoggedIn: this.isLoggedIn,
+                            userBlogId: this.userBlogId,
+                            hasNidInf: !!(this.cookies['nid_inf'] && this.cookies['nid_inf'].length > 0),
+                            hasNidSes: !!(this.cookies['NID_SES'] && this.cookies['NID_SES'].length > 0)
+                        })
+
+                        alert(`네이버 API 오류:\n${errorMessage}\n\n가능한 원인:\n- 블로그 ID 확인\n- 로그인 상태 확인\n- 블로그 쓰기 권한 확인\n\n콘솔에서 자세한 오류 정보를 확인해주세요.`)
                         return
                     }
                 } catch (parseError) {
@@ -1362,7 +1511,7 @@ class App {
                lowerUrl.includes('unsplash.com')
     }
 
-    async convertToNaverBlogFormat(title, paragraphs) {
+    async convertToNaverBlogFormat(title, paragraphs, linkOption = 'upconvert') {
         const components = []
 
         // 제목 컴포넌트
@@ -1407,30 +1556,36 @@ class App {
                     "@ctype": "quotation"
                 })
             } else if (paragraph.type === 'youtube') {
-                // YouTube oembed 컴포넌트
-                const videoId = this.extractYouTubeId(paragraph.url);
+                // YouTube도 oglink 컴포넌트로 처리 (일관성 유지)
+                console.log('Processing YouTube as oglink:', paragraph.url);
+                const preview = await this.fetchLinkPreview(paragraph.url);
+                console.log('YouTube oglink preview:', preview);
+
+                // 텍스트 컴포넌트
                 components.push({
                     id: this.generateSEId(),
                     layout: "default",
-                    type: "video",
-                    version: "1.0",
-                    html: `<iframe width="400" height="225" src="https://www.youtube.com/embed/${videoId}?feature=oembed" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen title="${paragraph.title || 'YouTube video'}"></iframe>`,
-                    originalWidth: 400,
-                    originalHeight: 225,
-                    authorName: "YouTube",
-                    authorUrl: "https://www.youtube.com/",
-                    providerName: "YouTube",
-                    providerUrl: "https://www.youtube.com/",
-                    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                    thumbnailWidth: 480,
-                    thumbnailHeight: 360,
-                    title: paragraph.title || "YouTube video",
-                    description: "",
-                    inputUrl: paragraph.url,
-                    contentMode: "fit",
-                    oembedSign: "dnqGS1IL5Tk_irorTQ0mBIw5OJHFza4G1EHIbL18eXM__v2.0",
-                    "@ctype": "oembed"
-                })
+                    value: [{
+                        id: this.generateSEId(),
+                        nodes: [{
+                            id: this.generateSEId(),
+                            value: paragraph.text || preview.title,
+                            link: {
+                                url: paragraph.url,
+                                "@ctype": "link"
+                            },
+                            style: {
+                                fontFamily: "nanumbareunhipi",
+                                "@ctype": "nodeStyle"
+                            },
+                            "@ctype": "textNode"
+                        }],
+                        "@ctype": "paragraph"
+                    }],
+                    "@ctype": "text"
+                });
+
+                // oglink 컴포넌트 생략 - 단순 하이퍼링크로만 처리
             } else if (paragraph.type === 'subtitle') {
                 // 소제목 컴포넌트
                 components.push({
@@ -1479,48 +1634,33 @@ class App {
                     "@ctype": "image"
                 })
             } else if (paragraph.type === 'link') {
-                // 링크 컴포넌트 - 미리보기 정보 가져오기
-                console.log('Processing link:', paragraph.url);
-                const preview = await this.fetchLinkPreview(paragraph.url);
-                console.log('Link preview:', preview);
+                // 링크 컴포넌트 - 선택된 옵션에 따라 처리
+                console.log('Processing link with option:', linkOption, paragraph.url);
 
-                // 텍스트 컴포넌트 (링크 속성 포함)
-                components.push({
-                    id: this.generateSEId(),
-                    layout: "default",
-                    value: [{
-                        id: this.generateSEId(),
-                        nodes: [{
-                            id: this.generateSEId(),
-                            value: paragraph.text || preview.title,
-                            link: {
-                                url: paragraph.url,
-                                "@ctype": "link"
-                            },
-                            style: {
-                                fontFamily: "nanumbareunhipi",
-                                "@ctype": "nodeStyle"
-                            },
-                            "@ctype": "textNode"
-                        }],
-                        "@ctype": "paragraph"
-                    }],
-                    "@ctype": "text"
-                })
+                if (linkOption === 'upconvert') {
+                    // Upconvert API 사용
+                    const linkHtml = `<a href="${paragraph.url}">${paragraph.text || paragraph.url}</a>`;
+                    try {
+                        const naverComponents = await this.convertLinkWithUpconvertAPI(linkHtml);
+                        console.log('Upconvert API result:', naverComponents);
 
-                // oglink 컴포넌트 (curl 예시 기반 - large_image 레이아웃)
-                components.push({
-                    id: this.generateSEId(),
-                    layout: "large_image",
-                    title: preview.title,
-                    domain: preview.domain,
-                    link: preview.url,
-                    thumbnail: preview.thumbnail,
-                    description: preview.description,
-                    video: preview.video,
-                    oglinkSign: "Ub2GJaay33GnzOcInKXBCIubN2t5LrWC7is7G-rP_-A__v1.0",
-                    "@ctype": "oglink"
-                })
+                        if (naverComponents && naverComponents.length > 0) {
+                            components.push(...naverComponents);
+                        } else {
+                            console.log('Upconvert API failed, falling back to simple link');
+                            this.addSimpleLinkComponent(components, paragraph);
+                        }
+                    } catch (error) {
+                        console.error('Upconvert API error, using fallback:', error);
+                        this.addSimpleLinkComponent(components, paragraph);
+                    }
+                } else if (linkOption === 'simple') {
+                    // 단순 텍스트 링크
+                    this.addSimpleLinkComponent(components, paragraph);
+                } else if (linkOption === 'oglink') {
+                    // OGLink 카드
+                    this.addOgLinkComponent(components, paragraph);
+                }
             } else {
                 // 일반 텍스트 컴포넌트 - 볼드 및 색상 파싱 지원
                 const styledNodes = paragraph.styledNodes || [{ type: 'normal', text: paragraph.content }]
@@ -1909,6 +2049,10 @@ class App {
 
 [고양이 이미지](https://cdn.pixabay.com/photo/2021/10/21/14/03/cats-6729197_1280.jpg)
 
+[네이버](https://www.naver.com)
+
+[깃허브](www.github.com)
+
 마지막 단락입니다. 모든 요소가 잘 변환되는지 확인해보세요!`
 
         console.log('=== Original Markdown ===')
@@ -1920,7 +2064,8 @@ class App {
             console.log('Title:', parsed.title)
             console.log('Paragraphs:', JSON.stringify(parsed.paragraphs, null, 2))
 
-            const components = await this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
+            const linkOption = document.getElementById('linkProcessingOption').value;
+        const components = await this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs, linkOption)
             console.log('=== Converted Components ===')
             console.log('Number of components:', components.length)
             components.forEach((comp, index) => {
@@ -2092,11 +2237,18 @@ class App {
 
         console.log('=== Sample DocumentModel API Request Debug ===')
         console.log('BlogId:', blogId)
-        console.log('DocumentModel:', documentModel)
+        console.log('isLoggedIn:', this.isLoggedIn)
+        console.log('Required cookies present:', {
+            nid_inf: !!(this.cookies['nid_inf'] && this.cookies['nid_inf'].length > 0),
+            NID_SES: !!(this.cookies['NID_SES'] && this.cookies['NID_SES'].length > 0)
+        })
+        console.log('DocumentModel:', JSON.stringify(documentModel, null, 2))
         console.log('RequestData keys:', Object.keys(requestData))
 
         // 임시 저장 후 발행 시도
         console.log('=== 임시 저장 시도 ===')
+        console.log('Request URL: https://blog.naver.com/RabbitWrite.naver')
+        console.log('Request Data:', requestData)
         const tempSaveResult = await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData, { blogId })
 
         console.log('Temp save result:', tempSaveResult)

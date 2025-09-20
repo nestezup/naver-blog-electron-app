@@ -10,9 +10,9 @@
 
 [고양이 이미지](https://cdn.pixabay.com/photo/2021/10/21/14/03/cats-6729197_1280.jpg)
 
-[네이버 링크](https://www.naver.com)
+[네이버](https://www.naver.com)
 
-[GitHub 프로젝트](https://github.com/microsoft/vscode)
+[깃허브](www.github.com)
 
 이것은 **볼드 텍스트**와 일반 텍스트가 혼합된 단락입니다.
 
