@@ -1,193 +1,18 @@
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
-// Tailwind v4 방식으로 CSS 생성
-const tailwindCSS = `
-@import "tailwindcss/base";
-@import "tailwindcss/components";
-@import "tailwindcss/utilities";
+// Tailwind CSS v4 빌드 스크립트
+function buildTailwindCSS() {
+    console.log('Building Tailwind CSS v4 with DaisyUI...');
 
-/* DaisyUI themes */
-@import "daisyui/dist/full.css";
+    // 임시 CSS 파일 생성
+    const tempCssPath = path.join(__dirname, 'temp-input.css');
+    const outputCssPath = path.join(__dirname, 'app', 'renderer', 'css', 'style.css');
 
-/* Custom Electron styles */
-body {
-    overflow: hidden;
-    margin: 0;
-    padding: 0;
-}
-
-webview {
-    width: 100%;
-    height: 100%;
-    border: none;
-}
-
-.webview-container {
-    position: relative;
-    overflow: hidden;
-    flex: 1;
-    min-height: 0;
-}
-
-#loadingOverlay {
-    position: absolute;
-    inset: 0;
-    background: white;
-    z-index: 10;
-}
-
-#loadingOverlay.hidden {
-    display: none;
-}
-
-.loading-spinner {
-    width: 2rem;
-    height: 2rem;
-    border: 2px solid #e5e7eb;
-    border-top: 2px solid #3b82f6;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* Layout fixes */
-body .main-container {
-    height: calc(100vh - 4rem);
-    display: flex;
-}
-
-body .sidebar {
-    width: 320px;
-    flex-shrink: 0;
-    display: block;
-    position: relative;
-    transform: none;
-}
-
-body .webview-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-
-.webview-section {
-    flex: 1;
-    position: relative;
-    min-height: 0;
-}
-
-webview {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-}
-`;
-
-// 간단한 빌드된 CSS 파일 생성 (실제 Tailwind는 빌드 과정 필요)
-const builtCSS = `
-/* Tailwind CSS Reset and Base */
-*,::before,::after{box-sizing:border-box;border-width:0;border-style:solid;border-color:#e5e7eb}
-::before,::after{--tw-content:''}
-html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";font-feature-settings:normal;font-variation-settings:normal}
-body{margin:0;line-height:inherit}
-
-/* Tailwind Utilities - Essential Classes */
-.flex{display:flex}
-.h-screen{height:100vh}
-.flex-col{flex-direction:column}
-.bg-base-100{background-color:oklch(var(--b1)/var(--tw-bg-opacity))}
-.navbar{display:flex;align-items:center;justify-content:space-between;width:100%;padding:var(--navbar-padding,0.5rem 1rem);min-height:4rem;background-color:var(--fallback-b1,oklch(var(--b1)/1))}
-.navbar-start{width:50%;justify-content:flex-start}
-.navbar-center{flex-shrink:0}
-.navbar-end{width:50%;justify-content:flex-end}
-.bg-primary{background-color:oklch(var(--p)/var(--tw-bg-opacity))}
-.text-primary-content{color:oklch(var(--pc)/var(--tw-text-opacity))}
-.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:var(--rounded-btn,0.5rem);height:3rem;padding-left:1rem;padding-right:1rem;min-height:3rem;font-size:0.875rem;font-weight:600;text-decoration-line:none;border-width:1px;border-color:transparent;outline:2px solid transparent;outline-offset:2px;background-color:oklch(var(--n)/var(--tw-bg-opacity));color:oklch(var(--nc)/var(--tw-text-opacity))}
-.btn-square{height:3rem;width:3rem;padding:0}
-.btn-ghost{border-width:1px;border-color:transparent;background-color:transparent;color:currentColor}
-.btn-xs{height:1.5rem;padding-left:0.5rem;padding-right:0.5rem;min-height:1.5rem;font-size:0.75rem}
-.btn-sm{height:2rem;padding-left:0.75rem;padding-right:0.75rem;min-height:2rem;font-size:0.875rem}
-.btn-outline{border-color:currentColor;background-color:transparent}
-.btn-primary{background-color:oklch(var(--p)/var(--tw-bg-opacity));border-color:oklch(var(--p)/var(--tw-border-opacity));color:oklch(var(--pc)/var(--tw-text-opacity))}
-.w-5{width:1.25rem}
-.h-5{height:1.25rem}
-.stroke-current{stroke:currentColor}
-.text-xl{font-size:1.25rem;line-height:1.75rem}
-.font-bold{font-weight:700}
-.bg-base-200{background-color:oklch(var(--b2)/var(--tw-bg-opacity))}
-.p-4{padding:1rem}
-.border-b{border-bottom-width:1px}
-.text-lg{font-size:1.125rem;line-height:1.75rem}
-.font-semibold{font-weight:600}
-.flex-1{flex:1 1 0%}
-.w-3{width:0.75rem}
-.h-3{height:0.75rem}
-.rounded-full{border-radius:9999px}
-.bg-error{background-color:oklch(var(--er)/var(--tw-bg-opacity))}
-.bg-success{background-color:oklch(var(--su)/var(--tw-bg-opacity))}
-.text-sm{font-size:0.875rem;line-height:1.25rem}
-.gap-3{gap:0.75rem}
-.mb-2{margin-bottom:0.5rem}
-.items-center{align-items:center}
-.space-y-2>:not([hidden])~:not([hidden]){margin-top:0.5rem}
-.input{flex-shrink:1;height:3rem;padding-left:1rem;padding-right:1rem;font-size:1rem;line-height:2;border-width:1px;border-color:transparent;background-color:oklch(var(--b1)/var(--tw-bg-opacity));border-radius:var(--rounded-btn,0.5rem)}
-.input-sm{height:2rem;padding-left:0.75rem;padding-right:0.75rem;font-size:0.875rem}
-.textarea{min-height:3rem;padding:0.75rem;font-size:0.875rem;line-height:1.25;border-width:1px;border-color:transparent;background-color:oklch(var(--b1)/var(--tw-bg-opacity));border-radius:var(--rounded-btn,0.5rem);resize:vertical}
-.textarea-sm{min-height:2rem;padding:0.5rem;font-size:0.75rem}
-.h-32{height:8rem}
-.resize-none{resize:none}
-.w-full{width:100%}
-.gap-1{gap:0.25rem}
-.menu{display:flex;flex-direction:column;flex-wrap:wrap;font-size:0.875rem;padding:0.5rem}
-.menu li>*{display:flex;align-items:center;padding:0.5rem 0.75rem;text-decoration:none;border-radius:var(--rounded-btn,0.5rem)}
-.cursor-pointer{cursor:pointer}
-.px-4{padding-left:1rem;padding-right:1rem}
-.py-2{padding-top:0.5rem;padding-bottom:0.5rem}
-.gap-2{gap:0.5rem}
-.mx-4{margin-left:1rem;margin-right:1rem}
-
-/* DaisyUI Theme Variables */
-:root{
-  --p: 259 94% 51%;
-  --pc: 0 0% 100%;
-  --s: 314 100% 47%;
-  --sc: 0 0% 100%;
-  --a: 174 60% 51%;
-  --ac: 0 0% 100%;
-  --n: 214 20% 14%;
-  --nc: 0 0% 100%;
-  --b1: 0 0% 100%;
-  --b2: 0 0% 95%;
-  --b3: 180 2% 90%;
-  --bc: 215 28% 17%;
-  --in: 198 93% 60%;
-  --inc: 0 0% 100%;
-  --su: 158 64% 52%;
-  --suc: 0 0% 100%;
-  --wa: 43 96% 56%;
-  --wac: 0 0% 100%;
-  --er: 0 91% 71%;
-  --erc: 0 0% 100%;
-  --rounded-box: 1rem;
-  --rounded-btn: 0.5rem;
-  --rounded-badge: 1.9rem;
-  --animation-btn: 0.25s;
-  --animation-input: .2s;
-  --btn-text-case: uppercase;
-  --btn-focus-scale: 0.95;
-  --border-btn: 1px;
-  --tab-border: 1px;
-  --tab-radius: 0.5rem;
-}
+    const inputCss = `
+@import "tailwindcss";
+@plugin "daisyui";
 
 /* Custom Electron styles */
 body {
@@ -268,16 +93,132 @@ webview {
     left: 0;
     width: 100%;
     height: 100%;
+}`;
+
+    // 임시 파일 작성
+    fs.writeFileSync(tempCssPath, inputCss);
+
+    try {
+        // Tailwind CSS CLI로 빌드
+        execSync(`npx tailwindcss@4.1.13 -i ${tempCssPath} -o ${outputCssPath}`, {
+            stdio: 'inherit'
+        });
+
+        console.log('Tailwind CSS built successfully!');
+
+        // 임시 파일 삭제
+        fs.unlinkSync(tempCssPath);
+
+    } catch (error) {
+        console.error('Error building Tailwind CSS:', error.message);
+        console.log('Falling back to CDN approach...');
+
+        // 임시 파일 정리
+        if (fs.existsSync(tempCssPath)) {
+            fs.unlinkSync(tempCssPath);
+        }
+
+        // CDN 방식으로 fallback
+        buildCSSWithCDN();
+    }
 }
-`;
 
-// CSS 디렉토리 생성
-const cssDir = path.join(__dirname, 'app', 'renderer', 'css');
-if (!fs.existsSync(cssDir)) {
-    fs.mkdirSync(cssDir, { recursive: true });
+function buildCSSWithCDN() {
+    const outputCssPath = path.join(__dirname, 'app', 'renderer', 'css', 'style.css');
+    const cssDir = path.dirname(outputCssPath);
+
+    if (!fs.existsSync(cssDir)) {
+        fs.mkdirSync(cssDir, { recursive: true });
+    }
+
+    const cssContent = `
+/* Tailwind CSS v4 + DaisyUI CDN을 사용합니다. */
+/* 실제 스타일은 HTML의 CDN 링크에서 로드됩니다. */
+
+/* Custom Electron styles */
+body {
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
 }
 
-// CSS 파일 작성
-fs.writeFileSync(path.join(cssDir, 'style.css'), builtCSS);
+webview {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
 
-console.log('CSS built successfully!');
+.webview-container {
+    position: relative;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+}
+
+#loadingOverlay {
+    position: absolute;
+    inset: 0;
+    background: white;
+    z-index: 10;
+}
+
+#loadingOverlay.hidden {
+    display: none;
+}
+
+.loading-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 2px solid #e5e7eb;
+    border-top: 2px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Layout fixes */
+body .main-container {
+    height: calc(100vh - 4rem);
+    display: flex;
+}
+
+body .sidebar {
+    width: 320px;
+    flex-shrink: 0;
+    display: block;
+    position: relative;
+    transform: none;
+}
+
+body .webview-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.webview-section {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+}
+
+webview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}`;
+
+    fs.writeFileSync(outputCssPath, cssContent);
+    console.log('CSS built with CDN fallback!');
+}
+
+// 메인 실행
+buildTailwindCSS();

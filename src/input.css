@@ -1,8 +1,7 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "daisyui";
 
-/* Custom styles for Electron app */
+/* Custom Electron styles */
 body {
     overflow: hidden;
     margin: 0;
@@ -48,7 +47,7 @@ webview {
     }
 }
 
-/* 높이 문제 해결 - 명확한 레이아웃 */
+/* Layout fixes */
 body .main-container {
     height: calc(100vh - 4rem);
     display: flex;

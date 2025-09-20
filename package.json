@@ -5,7 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "dev": "electron src/main.js",
-    "build-css": "node build-css.js",
+    "build-css": "npx tailwindcss -i ./src/input.css -o ./app/renderer/css/style.css",
     "start": "npm run build-css && npm run dev"
   },
   "keywords": [
@@ -17,8 +17,11 @@
   "author": "nest",
   "license": "MIT",
   "devDependencies": {
-    "daisyui": "^5.1.12",
+    "@tailwindcss/cli": "^4.1.13",
+    "autoprefixer": "^10.4.21",
+    "daisyui": "^5.1.13",
     "electron": "^28.0.0",
+    "postcss": "^8.5.6",
     "tailwindcss": "^4.1.13"
   },
   "dependencies": {
