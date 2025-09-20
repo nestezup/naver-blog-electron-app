@@ -395,7 +395,7 @@ class App {
                 thisDayPostInfo: null,
                 scrapYn: false
             },
-            editorSource: "EPJG7EJse3NuChiZasrm8g=="
+            editorSource: "4I0ix70hXGPBHQA2KadBEg=="
         }
 
         const requestData = {
@@ -408,8 +408,37 @@ class App {
 
         console.log('Sending API request with data:', requestData)
 
-        // WebView에서 fetch 요청 (새 글 작성 API)
-        return await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData, { blogId })
+        // 임시 저장 후 발행 시도
+        console.log('=== 임시 저장 시도 ===')
+        const tempSaveResult = await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData, { blogId })
+
+        console.log('Temp save result:', tempSaveResult)
+
+        if (tempSaveResult.success && tempSaveResult.data) {
+            try {
+                const tempResponse = JSON.parse(tempSaveResult.data.trim())
+
+                if (tempResponse.isSuccess && tempResponse.result && tempResponse.result.documentId) {
+                    const documentId = tempResponse.result.documentId
+                    console.log('임시 저장 성공, documentId:', documentId)
+
+                    const publishData = {
+                        ...requestData,
+                        documentModel: JSON.stringify({
+                            ...JSON.parse(requestData.documentModel),
+                            documentId: documentId
+                        })
+                    }
+
+                    console.log('=== 발행 시도 ===')
+                    return await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', publishData, { blogId })
+                }
+            } catch (parseError) {
+                console.error('Temp save response parsing error:', parseError)
+            }
+        }
+
+        return tempSaveResult
     }
 
     async submitFormInWebview(url, data) {
@@ -709,6 +738,23 @@ class App {
         return `SE-${generateSegment(8)}-${generateSegment(4)}-${generateSegment(4)}-${generateSegment(4)}-${generateSegment(12)}`
     }
 
+    extractYouTubeId(url) {
+        // YouTube URL에서 video ID 추출
+        const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/;
+        const match = url.match(regex);
+        return match ? match[1] : null;
+    }
+
+    extractDomainFromUrl(url) {
+        // URL에서 도메인 추출
+        try {
+            const domain = new URL(url).hostname.replace('www.', '');
+            return domain;
+        } catch (e) {
+            return url;
+        }
+    }
+
     // Blog ID Management Methods
     saveBlogId() {
         const blogIdInput = document.getElementById('blogIdInput')
@@ -843,35 +889,80 @@ class App {
         }
 
         console.log('Creating post from markdown...')
+        console.log('Original markdown:', markdown)
 
         const parsed = this.parseMarkdown(markdown)
+        console.log('Parsed markdown:', parsed)
 
-        // sendBlogAPIRequest 형식으로 변환
-        const postData = {
-            title: parsed.title,
-            content: parsed.paragraphs.map(p => p.content).join('\n\n')
-        }
-
-        console.log('Converted post data for sendBlogAPIRequest:', postData)
+        // convertToNaverBlogFormat으로 변환하여 components 생성
+        const components = this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
+        console.log('Converted components:', components)
 
         try {
-            // 테스트 글 작성과 동일한 방식 사용
-            const result = await this.sendBlogAPIRequest(postData)
+            // 잘되는 샘플글과 동일한 방식으로 전체 documentModel 생성
+            const fullDocumentModel = {
+                documentId: "",
+                document: {
+                    version: "2.8.10",
+                    theme: "default",
+                    language: "ko-KR",
+                    id: this.generateId(),
+                    components: components,
+                    di: {
+                        dif: false,
+                        dio: [
+                            {
+                                dis: "N",
+                                dia: {
+                                    t: 0,
+                                    p: 0,
+                                    st: 318,
+                                    sk: 93
+                                }
+                            },
+                            {
+                                dis: "N",
+                                dia: {
+                                    t: 0,
+                                    p: 0,
+                                    st: 318,
+                                    sk: 93
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+
+            console.log('=== Full DocumentModel (matching working sample) ===')
+            console.log('DocumentModel ID:', fullDocumentModel.document.id)
+            console.log('Components count:', components.length)
+            console.log('DI field included:', !!fullDocumentModel.document.di)
+
+            const result = await this.sendBlogAPIRequestWithDocumentModel(fullDocumentModel)
             console.log('Markdown post creation result:', result)
 
             // 응답 내용 상세 분석
+            console.log('Full API response:', result)
+
             if (result.data) {
                 try {
                     const responseData = JSON.parse(result.data.trim())
                     console.log('Parsed response:', responseData)
 
                     if (responseData.isSuccess === false) {
-                        console.error('Naver API Error:', responseData.result)
-                        alert(`네이버 API 오류: ${responseData.result}\n\n가능한 원인:\n- 블로그 ID 확인\n- 로그인 상태 확인\n- 블로그 쓰기 권한 확인`)
+                        console.error('Naver API Error:', responseData)
+                        const errorMessage = responseData.result ?
+                            (typeof responseData.result === 'object' ?
+                                JSON.stringify(responseData.result, null, 2) :
+                                responseData.result) :
+                            '알 수 없는 오류'
+                        alert(`네이버 API 오류:\n${errorMessage}\n\n가능한 원인:\n- 블로그 ID 확인\n- 로그인 상태 확인\n- 블로그 쓰기 권한 확인`)
                         return
                     }
                 } catch (parseError) {
                     console.error('Response parsing error:', parseError)
+                    console.error('Raw response data:', result.data)
                 }
             }
 
@@ -879,7 +970,9 @@ class App {
                 alert('마크다운 글이 성공적으로 작성되었습니다!')
                 markdownInput.value = '' // 입력 필드 초기화
             } else {
-                alert('글 작성에 실패했습니다: ' + result.message)
+                const errorMessage = result.message || '알 수 없는 오류'
+                console.error('API request failed:', result)
+                alert(`글 작성에 실패했습니다: ${errorMessage}\n\n콘솔에서 자세한 오류 정보를 확인해주세요.`)
             }
         } catch (error) {
             console.error('Markdown post creation error:', error)
@@ -900,6 +993,17 @@ class App {
             // 제목 처리 (# 으로 시작)
             if (line.startsWith('# ') && i === 0) {
                 title = line.substring(2).trim()
+                continue
+            }
+
+            // 소제목 처리 (## 으로 시작)
+            if (line.startsWith('## ')) {
+                if (currentParagraph) {
+                    paragraphs.push({ type: 'text', content: currentParagraph.trim() })
+                    currentParagraph = ''
+                }
+                const subtitle = line.substring(3).trim()
+                paragraphs.push({ type: 'subtitle', content: subtitle })
                 continue
             }
 
@@ -930,8 +1034,8 @@ class App {
                 } else if (this.isImageUrl(url)) {
                     paragraphs.push({ type: 'image', url: url, alt: linkText })
                 } else {
-                    // 일반 링크는 텍스트로 처리
-                    currentParagraph = `${linkText}: ${url}`
+                    // 일반 링크는 text와 oglink 컴포넌트로 분리
+                    paragraphs.push({ type: 'link', url: url, text: linkText })
                 }
                 continue
             }
@@ -939,7 +1043,8 @@ class App {
             // 빈 줄 처리
             if (line === '') {
                 if (currentParagraph) {
-                    paragraphs.push({ type: 'text', content: currentParagraph.trim() })
+                    const styledNodes = this.parseStyledText(currentParagraph.trim())
+                    paragraphs.push({ type: 'text', content: currentParagraph.trim(), styledNodes: styledNodes })
                     currentParagraph = ''
                 }
                 continue
@@ -954,10 +1059,94 @@ class App {
 
         // 마지막 단락 처리
         if (currentParagraph) {
-            paragraphs.push({ type: 'text', content: currentParagraph.trim() })
+            const styledNodes = this.parseStyledText(currentParagraph.trim())
+            paragraphs.push({ type: 'text', content: currentParagraph.trim(), styledNodes: styledNodes })
         }
 
         return { title, paragraphs }
+    }
+
+    // 볼드 및 색상 텍스트 파싱 함수
+    parseStyledText(text) {
+        const nodes = []
+        let currentIndex = 0
+
+        while (currentIndex < text.length) {
+            // 볼드 처리
+            const boldStart = text.indexOf('**', currentIndex)
+
+            // 색상 처리: 텍스트(색상코드) 형식
+            const colorMatch = text.substring(currentIndex).match(/^(.+?)\(#([0-9A-Fa-f]{6})\)/)
+
+            let nextSegment = null
+            let segmentType = 'normal'
+            let segmentEnd = text.length
+
+            if (boldStart !== -1 && boldStart >= currentIndex) {
+                // 볼드 처리 우선
+                if (colorMatch && colorMatch.index < boldStart - currentIndex) {
+                    // 색상이 더 먼저 나옴
+                    nextSegment = {
+                        type: 'color',
+                        text: colorMatch[1],
+                        color: colorMatch[2]
+                    }
+                    segmentEnd = currentIndex + colorMatch[0].length
+                } else {
+                    // 볼드가 더 먼저 나옴
+                    const boldEnd = text.indexOf('**', boldStart + 2)
+                    if (boldEnd !== -1) {
+                        nextSegment = {
+                            type: 'bold',
+                            text: text.substring(boldStart + 2, boldEnd)
+                        }
+                        segmentEnd = boldEnd + 2
+                    } else {
+                        // 볼드 종료 없음
+                        break
+                    }
+                }
+            } else if (colorMatch) {
+                // 색상 처리
+                nextSegment = {
+                    type: 'color',
+                    text: colorMatch[1],
+                    color: colorMatch[2]
+                }
+                segmentEnd = currentIndex + colorMatch[0].length
+            } else {
+                // 일반 텍스트
+                break
+            }
+
+            // 이전 텍스트 처리
+            if (currentIndex < (boldStart !== -1 && boldStart >= currentIndex ? boldStart : segmentEnd)) {
+                const beforeText = text.substring(currentIndex, nextSegment.type === 'bold' ? boldStart : segmentEnd)
+                if (beforeText) {
+                    nodes.push({
+                        type: 'normal',
+                        text: beforeText
+                    })
+                }
+            }
+
+            if (nextSegment) {
+                nodes.push(nextSegment)
+                currentIndex = segmentEnd
+            } else {
+                break
+            }
+        }
+
+        // 나머지 텍스트
+        if (currentIndex < text.length) {
+            nodes.push({
+                type: 'normal',
+                text: text.substring(currentIndex)
+            })
+        }
+
+        return nodes
     }
 
     isImageUrl(url) {
@@ -1014,23 +1203,49 @@ class App {
                     "@ctype": "quotation"
                 })
             } else if (paragraph.type === 'youtube') {
-                // YouTube OG 링크 컴포넌트
+                // YouTube oembed 컴포넌트
+                const videoId = this.extractYouTubeId(paragraph.url);
                 components.push({
                     id: this.generateSEId(),
-                    layout: "large_image",
-                    title: paragraph.title || "YouTube",
-                    domain: "www.youtube.com",
-                    link: paragraph.url,
-                    thumbnail: {
-                        src: "https://www.youtube.com/img/desktop/yt_1200.png",
-                        width: 1200,
-                        height: 1200,
-                        "@ctype": "thumbnail"
-                    },
-                    description: "YouTube에서 마음에 드는 동영상과 음악을 감상하고, 직접 만든 콘텐츠를 업로드하여 친구, 가족뿐만 아니라 전 세계 사람들과 콘텐츠를 공유할 수 있습니다.",
-                    video: false,
-                    oglinkSign: "Ub2GJaay33GnzOcInKXBCIubN2t5LrWC7is7G-rP_-A__v1.0",
-                    "@ctype": "oglink"
+                    layout: "default",
+                    type: "video",
+                    version: "1.0",
+                    html: `<iframe width="400" height="225" src="https://www.youtube.com/embed/${videoId}?feature=oembed" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen title="${paragraph.title || 'YouTube video'}"></iframe>`,
+                    originalWidth: 400,
+                    originalHeight: 225,
+                    authorName: "YouTube",
+                    authorUrl: "https://www.youtube.com/",
+                    providerName: "YouTube",
+                    providerUrl: "https://www.youtube.com/",
+                    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    thumbnailWidth: 480,
+                    thumbnailHeight: 360,
+                    title: paragraph.title || "YouTube video",
+                    description: "",
+                    inputUrl: paragraph.url,
+                    contentMode: "fit",
+                    oembedSign: "dnqGS1IL5Tk_irorTQ0mBIw5OJHFza4G1EHIbL18eXM__v2.0",
+                    "@ctype": "oembed"
+                })
+            } else if (paragraph.type === 'subtitle') {
+                // 소제목 컴포넌트
+                components.push({
+                    id: this.generateSEId(),
+                    layout: "default",
+                    title: [{
+                        id: this.generateSEId(),
+                        nodes: [{
+                            id: this.generateSEId(),
+                            value: paragraph.content,
+                            style: {
+                                fontFamily: "nanumbareunhipi",
+                                "@ctype": "nodeStyle"
+                            },
+                            "@ctype": "textNode"
+                        }],
+                        "@ctype": "paragraph"
+                    }],
+                    "@ctype": "sectionTitle"
                 })
             } else if (paragraph.type === 'image') {
                 // 이미지 컴포넌트
@@ -1059,17 +1274,21 @@ class App {
                     ai: false,
                     "@ctype": "image"
                 })
-            } else {
-                // 일반 텍스트 컴포넌트 - 네이버 형식에 맞게
-                const textParagraphs = this.createParagraphsFromText(paragraph.content)
-
-                // 단락 사이에 빈 줄 추가 (네이버 형식)
-                if (components.length > 1) {
-                    textParagraphs.unshift({
+            } else if (paragraph.type === 'link') {
+                // 링크 컴포넌트 - 텍스트 컴포넌트와 oglink 컴포넌트를 모두 생성
+                // 텍스트 컴포넌트 (링크 속성 포함)
+                components.push({
+                    id: this.generateSEId(),
+                    layout: "default",
+                    value: [{
                         id: this.generateSEId(),
                         nodes: [{
                             id: this.generateSEId(),
-                            value: "",
+                            value: paragraph.text || paragraph.url,
+                            link: {
+                                url: paragraph.url,
+                                "@ctype": "link"
+                            },
                             style: {
                                 fontFamily: "nanumbareunhipi",
                                 "@ctype": "nodeStyle"
@@ -1077,13 +1296,51 @@ class App {
                             "@ctype": "textNode"
                         }],
                         "@ctype": "paragraph"
-                    })
-                }
+                    }],
+                    "@ctype": "text"
+                })
+
+                // oglink 컴포넌트 (미리보기)
+                components.push({
+                    id: this.generateSEId(),
+                    layout: "default",
+                    title: paragraph.title || this.extractDomainFromUrl(paragraph.url),
+                    domain: this.extractDomainFromUrl(paragraph.url),
+                    link: paragraph.url,
+                    thumbnail: {
+                        src: paragraph.thumbnail || "https://www.google.com/s2/favicons?domain=" + this.extractDomainFromUrl(paragraph.url) + "&sz=128",
+                        width: 1200,
+                        height: 1200,
+                        "@ctype": "thumbnail"
+                    },
+                    description: paragraph.description || "",
+                    video: false,
+                    oglinkSign: "Ub2GJaay33GnzOcInKXBCIubN2t5LrWC7is7G-rP_-A__v1.0",
+                    "@ctype": "oglink"
+                })
+            } else {
+                // 일반 텍스트 컴포넌트 - 볼드 및 색상 파싱 지원
+                const styledNodes = paragraph.styledNodes || [{ type: 'normal', text: paragraph.content }]
+                const nodes = styledNodes.map(node => ({
+                    id: this.generateSEId(),
+                    value: node.text,
+                    style: {
+                        fontFamily: "nanumbareunhipi",
+                        ...(node.type === 'bold' ? { bold: true } : {}),
+                        ...(node.type === 'color' ? { fontColor: `#${node.color}` } : {}),
+                        "@ctype": "nodeStyle"
+                    },
+                    "@ctype": "textNode"
+                }))
 
                 components.push({
                     id: this.generateSEId(),
                     layout: "default",
-                    value: textParagraphs,
+                    value: [{
+                        id: this.generateSEId(),
+                        nodes: nodes,
+                        "@ctype": "paragraph"
+                    }],
                     "@ctype": "text"
                 })
             }
@@ -1093,12 +1350,8 @@ class App {
     }
 
     splitIntoSentences(text) {
-        // 네이버 형식에 맞게 자연스러운 문장 분리
-        const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0)
-        if (sentences.length > 0) {
-            return sentences
-        }
-        // 마침표가 없는 경우 전체를 하나의 문장으로
+        // 마크다운 텍스트는 자연스러운 단락으로 유지
+        // 너무 세분화하지 않고 전체를 하나로 처리
         return [text]
     }
 
@@ -1169,8 +1422,8 @@ class App {
                             dia: {
                                 t: 0,
                                 p: 0,
-                                st: 495,
-                                sk: 102
+                                st: 318,
+                                sk: 93
                             }
                         },
                         {
@@ -1178,8 +1431,8 @@ class App {
                             dia: {
                                 t: 0,
                                 p: 0,
-                                st: 37,
-                                sk: 1
+                                st: 318,
+                                sk: 93
                             }
                         }
                     ]
@@ -1455,14 +1708,95 @@ class App {
 
 마지막 단락입니다. 모든 요소가 잘 변환되는지 확인해보세요!`
 
+        console.log('=== Original Markdown ===')
+        console.log(sampleMarkdown)
+
         try {
             const parsed = this.parseMarkdown(sampleMarkdown)
+            console.log('=== Parsed Result ===')
+            console.log('Title:', parsed.title)
+            console.log('Paragraphs:', JSON.stringify(parsed.paragraphs, null, 2))
+
             const components = this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
+            console.log('=== Converted Components ===')
+            console.log('Number of components:', components.length)
+            components.forEach((comp, index) => {
+                console.log(`Component ${index}: ${comp['@ctype']} (layout: ${comp.layout})`)
+            })
+            console.log(JSON.stringify(components, null, 2))
 
-            console.log('Sample markdown parsed:', parsed)
-            console.log('Converted components:', components)
+            // 디버깅: 샘플 데이터와 비교
+            console.log('=== DEBUG: Comparing with sample structure ===')
+            console.log('First component (title):', components[0])
+            console.log('First component keys:', Object.keys(components[0]))
 
-            const result = await this.sendBlogAPIRequestWithData(components)
+            // 변환된 documentModel 생성 및 파일로 저장
+            const documentModel = {
+                documentId: "",
+                document: {
+                    version: "2.8.10",
+                    theme: "default",
+                    language: "ko-KR",
+                    id: this.generateId(),
+                    components: components
+                }
+            }
+
+            console.log('=== Generated DocumentModel ===')
+            console.log(JSON.stringify(documentModel, null, 2))
+
+            // 파일로 저장 (Electron 환경에서)
+            try {
+                const fs = require('fs')
+                const path = require('path')
+                const filePath = path.join(__dirname, 'converted_documentModel.json')
+                fs.writeFileSync(filePath, JSON.stringify(documentModel, null, 2))
+                console.log('DocumentModel saved to:', filePath)
+            } catch (e) {
+                console.log('Cannot save file in browser environment, but structure is valid')
+            }
+
+            // 잘되는 샘플글과 동일한 방식으로 전체 documentModel 생성
+            const fullDocumentModel = {
+                documentId: "",
+                document: {
+                    version: "2.8.10",
+                    theme: "default",
+                    language: "ko-KR",
+                    id: this.generateId(),
+                    components: components,
+                    di: {
+                        dif: false,
+                        dio: [
+                            {
+                                dis: "N",
+                                dia: {
+                                    t: 0,
+                                    p: 0,
+                                    st: 318,
+                                    sk: 93
+                                }
+                            },
+                            {
+                                dis: "N",
+                                dia: {
+                                    t: 0,
+                                    p: 0,
+                                    st: 318,
+                                    sk: 93
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+
+            console.log('=== Full DocumentModel (matching working sample) ===')
+            console.log('DocumentModel ID:', fullDocumentModel.document.id)
+            console.log('Components count:', components.length)
+            console.log('DI field included:', !!fullDocumentModel.document.di)
+
+            const result = await this.sendBlogAPIRequestWithDocumentModel(fullDocumentModel)
             console.log('Sample markdown post creation result:', result)
 
             if (result.success) {

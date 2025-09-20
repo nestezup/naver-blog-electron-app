@@ -54,7 +54,7 @@
     <!-- Header -->
     <div class="navbar bg-primary text-primary-content">
         <div class="navbar-start">
-            <button id="toggleSidebar" class="btn btn-square btn-ghost">
+            <button id="toggleSidebar" class="btn btn-ghost btn-circle">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="w-5 h-5 stroke-current">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
                 </svg>
@@ -64,7 +64,7 @@
             <span class="text-xl font-bold">Naver Blog</span>
         </div>
         <div class="navbar-end">
-            <button id="toggleTheme" class="btn btn-square btn-ghost">
+            <button id="toggleTheme" class="btn btn-ghost btn-circle">
                 <svg id="moonIcon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="w-5 h-5 stroke-current">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
                 </svg>
@@ -109,17 +109,17 @@
                         placeholder="마크다운 내용을 입력하세요..."
                         class="textarea textarea-sm w-full h-32 resize-none"
                         rows="6"></textarea>
-                    <div class="flex gap-1">
-                        <button id="previewMarkdown" class="btn btn-xs btn-outline flex-1">미리보기</button>
-                        <button id="createPostFromMarkdown" class="btn btn-xs btn-primary flex-1">마크다운으로 작성</button>
+                    <div class="flex gap-2">
+                        <button id="previewMarkdown" class="btn btn-sm btn-outline flex-1">미리보기</button>
+                        <button id="createPostFromMarkdown" class="btn btn-sm btn-primary flex-1">마크다운으로 작성</button>
                     </div>
                 </div>
             </div>
             <div class="p-4 border-b">
                 <h3 class="text-sm font-semibold mb-2">샘플 테스트</h3>
-                <div class="space-y-2">
-                    <button id="createSamplePost" class="btn btn-xs btn-success w-full">샘플 글 작성</button>
-                    <button id="createSamplePostWithMarkdown" class="btn btn-xs btn-info w-full">마크다운 샘플 작성</button>
+                <div class="space-y-3">
+                    <button id="createSamplePost" class="btn btn-success w-full py-3 text-base font-medium">샘플 글 작성</button>
+                    <button id="createSamplePostWithMarkdown" class="btn btn-info w-full py-3 text-base font-medium">마크다운 샘플 작성</button>
                 </div>
             </div>
             <div class="p-4">
@@ -134,10 +134,10 @@
         <!-- WebView Container -->
         <div class="webview-container">
             <!-- Navigation -->
-            <div class="bg-base-200 px-4 py-2 flex items-center gap-2 border-b">
-                <button id="goBack" class="btn btn-sm btn-ghost">←</button>
-                <button id="goForward" class="btn btn-sm btn-ghost">→</button>
-                <button id="refresh" class="btn btn-sm btn-ghost">↻</button>
+            <div class="bg-base-200 px-4 py-3 flex items-center gap-3 border-b">
+                <button id="goBack" class="btn btn-sm btn-ghost px-3">←</button>
+                <button id="goForward" class="btn btn-sm btn-ghost px-3">→</button>
+                <button id="refresh" class="btn btn-sm btn-ghost px-3">↻</button>
                 <div class="flex-1 mx-4">
                     <input id="urlInput" type="text" class="input input-sm w-full" value="https://blog.naver.com" readonly>
                 </div>
