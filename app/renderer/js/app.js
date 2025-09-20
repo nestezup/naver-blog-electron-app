@@ -755,6 +755,173 @@ class App {
         }
     }
 
+    async fetchLinkPreview(url) {
+        // 링크 미리보기 정보 가져오기 (제공해주신 curl 예시 기반)
+        try {
+            console.log('Fetching link preview for:', url);
+
+            // WebView를 통해 요청하여 CORS 문제 회피
+            // 도메인 추출 함수를 인라인으로 포함
+            const extractDomainFromUrl = (url) => {
+                try {
+                    const domain = new URL(url).hostname.replace('www.', '');
+                    return domain;
+                } catch (e) {
+                    return url;
+                }
+            };
+
+            const jsCode = `
+                (async () => {
+                    try {
+                        const response = await fetch('${url}', {
+                            method: 'GET',
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+                            }
+                        });
+
+                        if (!response.ok) {
+                            return { error: 'HTTP ' + response.status };
+                        }
+
+                        const html = await response.text();
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+
+                        // 도메인 추출 함수
+                        const extractDomainFromUrl = (url) => {
+                            try {
+                                const domain = new URL(url).hostname.replace('www.', '');
+                                return domain;
+                            } catch (e) {
+                                return url;
+                            }
+                        };
+
+                        // 메타태그 추출 함수
+                        const getMetaTag = (property) => {
+                            const tag = doc.querySelector(\`meta[property="\${property}"]\`) ||
+                                       doc.querySelector(\`meta[name="\${property}"]\`);
+                            return tag ? tag.getAttribute('content') : null;
+                        };
+
+                        // Open Graph 정보 추출
+                        const ogTitle = getMetaTag('og:title');
+                        const ogDescription = getMetaTag('og:description');
+                        const ogImage = getMetaTag('og:image');
+                        const ogUrl = getMetaTag('og:url') || url;
+                        const ogSiteName = getMetaTag('og:site_name');
+
+                        // 기본 정보 추출
+                        const title = ogTitle ||
+                                    doc.querySelector('title')?.textContent ||
+                                    getMetaTag('title') ||
+                                    extractDomainFromUrl(url);
+
+                        const description = ogDescription || getMetaTag('description') || '';
+
+                        // 도메인 추출
+                        const domain = extractDomainFromUrl(ogUrl);
+
+                        // 썸네일 처리 (curl 예시 기반)
+                        let thumbnailSrc = ogImage;
+                        if (!thumbnailSrc) {
+                            // YouTube 기본 이미지 처리
+                            if (domain.includes('youtube.com')) {
+                                thumbnailSrc = "https://www.youtube.com/img/desktop/yt_1200.png";
+                            } else {
+                                thumbnailSrc = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128";
+                            }
+                        }
+
+                        const thumbnail = {
+                            src: thumbnailSrc,
+                            width: 1200,
+                            height: 1200,
+                            "@ctype": "thumbnail"
+                        };
+
+                        // video 여부 확인
+                        let isVideo = false;
+                        if (domain.includes('youtube.com') || domain.includes('vimeo.com') || domain.includes('dailymotion.com')) {
+                            isVideo = true;
+                        }
+
+                        // 사이트별 기본 설명
+                        let siteDescription = description;
+                        if (!siteDescription && domain.includes('youtube.com')) {
+                            siteDescription = "YouTube에서 마음에 드는 동영상과 음악을 감상하고, 직접 만든 콘텐츠를 업로드하여 친구, 가족뿐만 아니라 전 세계 사람들과 콘텐츠를 공유할 수 있습니다.";
+                        }
+
+                        return {
+                            title: title,
+                            domain: domain,
+                            url: ogUrl,
+                            thumbnail: thumbnail,
+                            description: siteDescription,
+                            video: isVideo,
+                            siteName: ogSiteName || domain
+                        };
+
+                    } catch (error) {
+                        return { error: error.message };
+                    }
+                })()
+            `;
+
+            const result = await this.webview.executeJavaScript(jsCode);
+            console.log('Link preview result:', result);
+
+            if (result.error) {
+                console.error('Error fetching link preview:', result.error);
+                return this.generateFallbackPreview(url);
+            }
+
+            return result;
+
+        } catch (error) {
+            console.error('Error in fetchLinkPreview:', error);
+            return this.generateFallbackPreview(url);
+        }
+    }
+
+    generateFallbackPreview(url) {
+        // 미리보기 정보를 가져올 수 없을 때 기본값 생성
+        const domain = this.extractDomainFromUrl(url);
+
+        // 사이트별 기본 정보
+        let title = domain;
+        let description = '';
+        let thumbnailSrc = "https://www.google.com/s2/favicons?domain=" + domain + "&sz=128";
+        let isVideo = false;
+
+        if (domain.includes('youtube.com')) {
+            title = "YouTube";
+            description = "YouTube에서 마음에 드는 동영상과 음악을 감상하고, 직접 만든 콘텐츠를 업로드하여 친구, 가족뿐만 아니라 전 세계 사람들과 콘텐츠를 공유할 수 있습니다.";
+            thumbnailSrc = "https://www.youtube.com/img/desktop/yt_1200.png";
+            isVideo = true;
+        } else if (domain.includes('naver.com')) {
+            title = "네이버";
+            description = "네이버 메인에서 다양한 정보와 유용한 컨텐츠를 만나 보세요";
+        }
+
+        return {
+            title: title,
+            domain: domain,
+            url: url,
+            thumbnail: {
+                src: thumbnailSrc,
+                width: 1200,
+                height: 1200,
+                "@ctype": "thumbnail"
+            },
+            description: description,
+            video: isVideo,
+            siteName: domain
+        };
+    }
+
     // Blog ID Management Methods
     saveBlogId() {
         const blogIdInput = document.getElementById('blogIdInput')
@@ -895,7 +1062,7 @@ class App {
         console.log('Parsed markdown:', parsed)
 
         // convertToNaverBlogFormat으로 변환하여 components 생성
-        const components = this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
+        const components = await this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
         console.log('Converted components:', components)
 
         try {
@@ -1158,7 +1325,7 @@ class App {
                lowerUrl.includes('unsplash.com')
     }
 
-    convertToNaverBlogFormat(title, paragraphs) {
+    async convertToNaverBlogFormat(title, paragraphs) {
         const components = []
 
         // 제목 컴포넌트
@@ -1275,7 +1442,11 @@ class App {
                     "@ctype": "image"
                 })
             } else if (paragraph.type === 'link') {
-                // 링크 컴포넌트 - 텍스트 컴포넌트와 oglink 컴포넌트를 모두 생성
+                // 링크 컴포넌트 - 미리보기 정보 가져오기
+                console.log('Processing link:', paragraph.url);
+                const preview = await this.fetchLinkPreview(paragraph.url);
+                console.log('Link preview:', preview);
+
                 // 텍스트 컴포넌트 (링크 속성 포함)
                 components.push({
                     id: this.generateSEId(),
@@ -1284,7 +1455,7 @@ class App {
                         id: this.generateSEId(),
                         nodes: [{
                             id: this.generateSEId(),
-                            value: paragraph.text || paragraph.url,
+                            value: paragraph.text || preview.title,
                             link: {
                                 url: paragraph.url,
                                 "@ctype": "link"
@@ -1300,21 +1471,16 @@ class App {
                     "@ctype": "text"
                 })
 
-                // oglink 컴포넌트 (미리보기)
+                // oglink 컴포넌트 (curl 예시 기반 - large_image 레이아웃)
                 components.push({
                     id: this.generateSEId(),
-                    layout: "default",
-                    title: paragraph.title || this.extractDomainFromUrl(paragraph.url),
-                    domain: this.extractDomainFromUrl(paragraph.url),
-                    link: paragraph.url,
-                    thumbnail: {
-                        src: paragraph.thumbnail || "https://www.google.com/s2/favicons?domain=" + this.extractDomainFromUrl(paragraph.url) + "&sz=128",
-                        width: 1200,
-                        height: 1200,
-                        "@ctype": "thumbnail"
-                    },
-                    description: paragraph.description || "",
-                    video: false,
+                    layout: "large_image",
+                    title: preview.title,
+                    domain: preview.domain,
+                    link: preview.url,
+                    thumbnail: preview.thumbnail,
+                    description: preview.description,
+                    video: preview.video,
                     oglinkSign: "Ub2GJaay33GnzOcInKXBCIubN2t5LrWC7is7G-rP_-A__v1.0",
                     "@ctype": "oglink"
                 })
@@ -1717,7 +1883,7 @@ class App {
             console.log('Title:', parsed.title)
             console.log('Paragraphs:', JSON.stringify(parsed.paragraphs, null, 2))
 
-            const components = this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
+            const components = await this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
             console.log('=== Converted Components ===')
             console.log('Number of components:', components.length)
             components.forEach((comp, index) => {
