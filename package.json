@@ -20,5 +20,8 @@
     "daisyui": "^5.1.12",
     "electron": "^28.0.0",
     "tailwindcss": "^4.1.13"
+  },
+  "dependencies": {
+    "firebase": "^12.3.0"
   }
 }

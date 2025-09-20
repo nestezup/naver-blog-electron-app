@@ -1,5 +1,19 @@
 // Simple Naver Blog Electron App
 
+// Firebase 인증 모듈 import (ESM 모듈 지원되는 환경에서만 작동)
+let firebaseAuth = null;
+
+// 동적으로 import 시도
+async function loadFirebaseAuth() {
+    try {
+        const module = await import('../../src/firebase-auth.js');
+        firebaseAuth = module.default;
+        console.log('Firebase auth module loaded');
+    } catch (error) {
+        console.warn('Firebase auth module not available:', error);
+    }
+}
+
 class App {
     constructor() {
         this.webview = null
@@ -7,6 +21,8 @@ class App {
         this.cookies = {}
         this.isLoggedIn = false
         this.userBlogId = null
+        this.firebaseUser = null
+        this.authMode = 'login' // 'login' or 'signup'
         this.init()
     }
 
@@ -14,6 +30,8 @@ class App {
         this.webview = document.getElementById('blogWebview')
         this.setupEventListeners()
         this.setupWebView()
+        this.setupFirebaseAuth()
+        this.loadFirebaseUserFromStorage()
     }
 
     setupEventListeners() {
@@ -2363,9 +2381,331 @@ class App {
 
         return tempSaveResult
     }
+
+    // Firebase 인증 설정
+    async setupFirebaseAuth() {
+        try {
+            await loadFirebaseAuth();
+
+            if (firebaseAuth) {
+                // Firebase 인증 상태 리스너 설정
+                firebaseAuth.onAuthStateChanged((user) => {
+                    this.updateFirebaseUI(user);
+                });
+
+                // Firebase 인증 버튼 이벤트 리스너 설정
+                this.setupFirebaseEventListeners();
+
+                console.log('Firebase auth setup completed');
+            } else {
+                console.log('Firebase auth not available');
+            }
+        } catch (error) {
+            console.error('Firebase auth setup error:', error);
+        }
+    }
+
+    // Firebase 이벤트 리스너 설정
+    setupFirebaseEventListeners() {
+        // Google 로그인 버튼
+        const googleSignInBtn = document.getElementById('googleSignInBtn');
+        if (googleSignInBtn) {
+            googleSignInBtn.addEventListener('click', () => this.handleGoogleSignIn());
+        }
+
+        // 이메일 로그인 버튼
+        const emailSignInBtn = document.getElementById('emailSignInBtn');
+        if (emailSignInBtn) {
+            emailSignInBtn.addEventListener('click', () => this.showEmailAuthModal('login'));
+        }
+
+        // 회원가입 버튼
+        const emailSignUpBtn = document.getElementById('emailSignUpBtn');
+        if (emailSignUpBtn) {
+            emailSignUpBtn.addEventListener('click', () => this.showEmailAuthModal('signup'));
+        }
+
+        // 로그아웃 버튼
+        const signOutBtn = document.getElementById('firebaseSignOutBtn');
+        if (signOutBtn) {
+            signOutBtn.addEventListener('click', () => this.handleSignOut());
+        }
+
+        // 이메일 인증 모달 관련 이벤트
+        this.setupEmailAuthModalEvents();
+    }
+
+    // 이메일 인증 모달 이벤트 설정
+    setupEmailAuthModalEvents() {
+        const modal = document.getElementById('emailAuthModal');
+        const closeBtn = document.getElementById('closeEmailAuthModal');
+        const form = document.getElementById('emailAuthForm');
+        const modeSwitchBtn = document.getElementById('authModeSwitchBtn');
+        const forgotPasswordBtn = document.getElementById('forgotPasswordBtn');
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.hideEmailAuthModal());
+        }
+
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    this.hideEmailAuthModal();
+                }
+            });
+        }
+
+        if (form) {
+            form.addEventListener('submit', (e) => this.handleEmailAuthSubmit(e));
+        }
+
+        if (modeSwitchBtn) {
+            modeSwitchBtn.addEventListener('click', () => this.switchAuthMode());
+        }
+
+        if (forgotPasswordBtn) {
+            forgotPasswordBtn.addEventListener('click', () => this.handleForgotPassword());
+        }
+    }
+
+    // Google 로그인 처리
+    async handleGoogleSignIn() {
+        if (!firebaseAuth) {
+            alert('Firebase 인증이 준비되지 않았습니다.');
+            return;
+        }
+
+        try {
+            console.log('Starting Google sign-in...');
+            const user = await firebaseAuth.signInWithGoogle();
+            console.log('Google sign-in successful:', user);
+            this.showNotification('Google 로그인 성공!', 'success');
+        } catch (error) {
+            console.error('Google sign-in error:', error);
+            this.showNotification('Google 로그인에 실패했습니다.', 'error');
+        }
+    }
+
+    // 이메일 인증 모달 표시
+    showEmailAuthModal(mode = 'login') {
+        const modal = document.getElementById('emailAuthModal');
+        const title = document.getElementById('emailAuthModalTitle');
+        const submitBtn = document.getElementById('emailAuthSubmitBtn');
+        const confirmPasswordDiv = document.getElementById('confirmPasswordDiv');
+        const switchText = document.getElementById('authModeSwitchText');
+        const switchBtn = document.getElementById('authModeSwitchBtn');
+
+        this.authMode = mode;
+
+        if (mode === 'signup') {
+            title.textContent = '회원가입';
+            submitBtn.textContent = '회원가입';
+            confirmPasswordDiv.classList.remove('hidden');
+            switchText.textContent = '이미 계정이 있으신가요?';
+            switchBtn.textContent = '로그인';
+        } else {
+            title.textContent = '이메일 로그인';
+            submitBtn.textContent = '로그인';
+            confirmPasswordDiv.classList.add('hidden');
+            switchText.textContent = '계정이 없으신가요?';
+            switchBtn.textContent = '회원가입';
+        }
+
+        // 폼 초기화
+        document.getElementById('emailAuthForm').reset();
+        this.hideEmailAuthMessage();
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    // 이메일 인증 모달 숨기기
+    hideEmailAuthModal() {
+        const modal = document.getElementById('emailAuthModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    // 인증 모드 전환
+    switchAuthMode() {
+        const newMode = this.authMode === 'login' ? 'signup' : 'login';
+        this.showEmailAuthModal(newMode);
+    }
+
+    // 이메일 인증 폼 제출 처리
+    async handleEmailAuthSubmit(e) {
+        e.preventDefault();
+
+        if (!firebaseAuth) {
+            this.showEmailAuthMessage('Firebase 인증이 준비되지 않았습니다.', 'error');
+            return;
+        }
+
+        const email = document.getElementById('emailInput').value;
+        const password = document.getElementById('passwordInput').value;
+        const confirmPassword = document.getElementById('confirmPasswordInput').value;
+
+        try {
+            if (this.authMode === 'signup') {
+                if (password !== confirmPassword) {
+                    this.showEmailAuthMessage('비밀번호가 일치하지 않습니다.', 'error');
+                    return;
+                }
+
+                if (password.length < 6) {
+                    this.showEmailAuthMessage('비밀번호는 6자 이상이어야 합니다.', 'error');
+                    return;
+                }
+
+                console.log('Starting email sign-up...');
+                const user = await firebaseAuth.signUpWithEmail(email, password);
+                console.log('Email sign-up successful:', user);
+                this.showEmailAuthMessage('회원가입 성공! 이메일 인증을 확인해주세요.', 'success');
+
+                setTimeout(() => {
+                    this.hideEmailAuthModal();
+                }, 2000);
+            } else {
+                console.log('Starting email sign-in...');
+                const user = await firebaseAuth.signInWithEmail(email, password);
+                console.log('Email sign-in successful:', user);
+                this.hideEmailAuthModal();
+                this.showNotification('이메일 로그인 성공!', 'success');
+            }
+        } catch (error) {
+            console.error('Email auth error:', error);
+            let message = '인증에 실패했습니다.';
+
+            if (error.code === 'auth/user-not-found') {
+                message = '존재하지 않는 계정입니다.';
+            } else if (error.code === 'auth/wrong-password') {
+                message = '비밀번호가 올바르지 않습니다.';
+            } else if (error.code === 'auth/email-already-in-use') {
+                message = '이미 사용 중인 이메일입니다.';
+            } else if (error.code === 'auth/weak-password') {
+                message = '비밀번호는 6자 이상이어야 합니다.';
+            }
+
+            this.showEmailAuthMessage(message, 'error');
+        }
+    }
+
+    // 비밀번호 재설정 처리
+    async handleForgotPassword() {
+        if (!firebaseAuth) {
+            this.showEmailAuthMessage('Firebase 인증이 준비되지 않았습니다.', 'error');
+            return;
+        }
+
+        const email = document.getElementById('emailInput').value;
+        if (!email) {
+            this.showEmailAuthMessage('이메일을 입력해주세요.', 'error');
+            return;
+        }
+
+        try {
+            await firebaseAuth.resetPassword(email);
+            this.showEmailAuthMessage('비밀번호 재설정 이메일을 발송했습니다.', 'success');
+        } catch (error) {
+            console.error('Password reset error:', error);
+            this.showEmailAuthMessage('비밀번호 재설정 이메일 발송에 실패했습니다.', 'error');
+        }
+    }
+
+    // 로그아웃 처리
+    async handleSignOut() {
+        if (!firebaseAuth) {
+            return;
+        }
+
+        try {
+            await firebaseAuth.signOut();
+            this.showNotification('로그아웃 성공!', 'success');
+        } catch (error) {
+            console.error('Sign-out error:', error);
+            this.showNotification('로그아웃에 실패했습니다.', 'error');
+        }
+    }
+
+    // Firebase UI 업데이트
+    updateFirebaseUI(user) {
+        this.firebaseUser = user;
+
+        const userInfo = document.getElementById('firebaseUserInfo');
+        const authButtons = document.getElementById('firebaseAuthButtons');
+        const signOutBtn = document.getElementById('firebaseSignOutBtn');
+
+        if (user) {
+            // 사용자 정보 표시
+            userInfo.classList.remove('hidden');
+            authButtons.classList.add('hidden');
+            signOutBtn.classList.remove('hidden');
+
+            document.getElementById('userAvatar').src = user.photoURL || 'https://via.placeholder.com/40';
+            document.getElementById('userDisplayName').textContent = user.displayName || user.email;
+            document.getElementById('userEmail').textContent = user.email;
+        } else {
+            // 로그인 버튼 표시
+            userInfo.classList.add('hidden');
+            authButtons.classList.remove('hidden');
+            signOutBtn.classList.add('hidden');
+        }
+    }
+
+    // 로컬 스토리지에서 Firebase 사용자 정보 로드
+    loadFirebaseUserFromStorage() {
+        if (firebaseAuth) {
+            const user = firebaseAuth.getUserFromLocalStorage();
+            if (user) {
+                console.log('Loaded Firebase user from storage:', user);
+                // 실제 인증 상태는 Firebase auth listener에서 업데이트됨
+            }
+        }
+    }
+
+    // 이메일 인증 메시지 표시
+    showEmailAuthMessage(message, type = 'info') {
+        const messageDiv = document.getElementById('emailAuthMessage');
+        const messageText = document.getElementById('emailAuthMessageText');
+
+        messageText.textContent = message;
+        messageDiv.classList.remove('hidden');
+
+        // 스타일 설정
+        messageDiv.className = `alert alert-${type === 'error' ? 'error' : 'info'}`;
+    }
+
+    // 이메일 인증 메시지 숨기기
+    hideEmailAuthMessage() {
+        const messageDiv = document.getElementById('emailAuthMessage');
+        messageDiv.classList.add('hidden');
+    }
+
+    // 알림 표시
+    showNotification(message, type = 'info') {
+        // 간단한 알림 표시 (나중에 개선 가능)
+        const notification = document.createElement('div');
+        notification.className = `alert alert-${type === 'error' ? 'error' : 'success'} fixed top-4 right-4 z-50 max-w-sm`;
+        notification.innerHTML = `
+            <span>${message}</span>
+        `;
+
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
 }
 
 // Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    window.app = new App()
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        await loadFirebaseAuth();
+        window.app = new App();
+        console.log('App initialized with Firebase');
+    } catch (error) {
+        console.error('App initialization error:', error);
+        window.app = new App(); // Firebase 없이도 앱은 실행
+    }
 })
