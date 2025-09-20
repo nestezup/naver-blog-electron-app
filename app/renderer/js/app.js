@@ -77,6 +77,15 @@ class App {
             this.previewMarkdown()
         })
 
+        // Sample post creation
+        document.getElementById('createSamplePost').addEventListener('click', () => {
+            this.createSamplePost()
+        })
+
+        document.getElementById('createSamplePostWithMarkdown').addEventListener('click', () => {
+            this.createSamplePostFromMarkdown()
+        })
+
         // Load saved blog ID on startup (with delay for DOM)
         setTimeout(() => {
             this.loadSavedBlogId()
@@ -677,6 +686,7 @@ class App {
     }
 
     generateId() {
+        // 26자리 영숫자 ID 생성
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
         let result = ''
         for (let i = 0; i < 26; i++) {
@@ -904,6 +914,28 @@ class App {
                 continue
             }
 
+            // 링크 처리 ([텍스트](URL))
+            const linkMatch = line.match(/\[([^\]]+)\]\(([^)]+)\)/)
+            if (linkMatch) {
+                if (currentParagraph) {
+                    paragraphs.push({ type: 'text', content: currentParagraph.trim() })
+                    currentParagraph = ''
+                }
+
+                const linkText = linkMatch[1]
+                const url = linkMatch[2]
+
+                if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                    paragraphs.push({ type: 'youtube', url: url, title: linkText })
+                } else if (this.isImageUrl(url)) {
+                    paragraphs.push({ type: 'image', url: url, alt: linkText })
+                } else {
+                    // 일반 링크는 텍스트로 처리
+                    currentParagraph = `${linkText}: ${url}`
+                }
+                continue
+            }
+
             // 빈 줄 처리
             if (line === '') {
                 if (currentParagraph) {
@@ -926,6 +958,15 @@ class App {
         }
 
         return { title, paragraphs }
+    }
+
+    isImageUrl(url) {
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg']
+        const lowerUrl = url.toLowerCase()
+        return imageExtensions.some(ext => lowerUrl.includes(ext)) ||
+               lowerUrl.includes('pixabay.com') ||
+               lowerUrl.includes('pexels.com') ||
+               lowerUrl.includes('unsplash.com')
     }
 
     convertToNaverBlogFormat(title, paragraphs) {
@@ -971,6 +1012,52 @@ class App {
                     }],
                     source: null,
                     "@ctype": "quotation"
+                })
+            } else if (paragraph.type === 'youtube') {
+                // YouTube OG 링크 컴포넌트
+                components.push({
+                    id: this.generateSEId(),
+                    layout: "large_image",
+                    title: paragraph.title || "YouTube",
+                    domain: "www.youtube.com",
+                    link: paragraph.url,
+                    thumbnail: {
+                        src: "https://www.youtube.com/img/desktop/yt_1200.png",
+                        width: 1200,
+                        height: 1200,
+                        "@ctype": "thumbnail"
+                    },
+                    description: "YouTube에서 마음에 드는 동영상과 음악을 감상하고, 직접 만든 콘텐츠를 업로드하여 친구, 가족뿐만 아니라 전 세계 사람들과 콘텐츠를 공유할 수 있습니다.",
+                    video: false,
+                    oglinkSign: "Ub2GJaay33GnzOcInKXBCIubN2t5LrWC7is7G-rP_-A__v1.0",
+                    "@ctype": "oglink"
+                })
+            } else if (paragraph.type === 'image') {
+                // 이미지 컴포넌트
+                components.push({
+                    id: this.generateSEId(),
+                    layout: "default",
+                    src: paragraph.url,
+                    internalResource: false,
+                    represent: false,
+                    domain: "https://blogfiles.pstatic.net",
+                    fileSize: 0,
+                    width: 693,
+                    widthPercentage: 0,
+                    height: 924,
+                    originalWidth: 960,
+                    originalHeight: 1280,
+                    caption: null,
+                    format: "normal",
+                    displayFormat: "normal",
+                    imageLoaded: true,
+                    contentMode: "fit",
+                    origin: {
+                        srcFrom: "copyUrl",
+                        "@ctype": "imageOrigin"
+                    },
+                    ai: false,
+                    "@ctype": "image"
                 })
             } else {
                 // 일반 텍스트 컴포넌트 - 네이버 형식에 맞게
@@ -1104,19 +1191,44 @@ class App {
         const populationParams = {
             configuration: {
                 openType: 0,
-                commentYn: false,
-                scrapYn: false,
-                allowHtml: false,
-                hideTitle: false
+                commentYn: true,
+                searchYn: false,
+                sympathyYn: false,
+                scrapType: 0,
+                outSideAllowYn: false,
+                twitterPostingYn: false,
+                facebookPostingYn: false,
+                cclYn: false
             },
-            editorSource: "EPJG7EJse3NuChiZasrm8g=="
+            populationMeta: {
+                categoryId: 1,
+                logNo: 0,
+                directorySeq: 0,
+                directoryDetail: null,
+                mrBlogTalkCode: null,
+                postWriteTimeType: "now",
+                tags: "",
+                moviePanelParticipation: false,
+                greenReviewBannerYn: false,
+                continueSaved: false,
+                noticePostYn: false,
+                autoByCategoryYn: false,
+                postLocationSupportYn: false,
+                postLocationJson: null,
+                prePostDate: null,
+                thisDayPostInfo: null,
+                scrapYn: false,
+                autoSaveNo: Date.now()
+            },
+            editorSource: "4I0ix70hXGPBHQA2KadBEg=="
         }
 
         const requestData = {
             blogId: blogId,
             documentModel: JSON.stringify(documentModel),
             mediaResources: JSON.stringify({ image: [], video: [], file: [] }),
-            populationParams: JSON.stringify(populationParams)
+            populationParams: JSON.stringify(populationParams),
+            productApiVersion: 'v1'
         }
 
         console.log('=== Markdown API Request Debug ===')
@@ -1143,6 +1255,323 @@ class App {
                     console.log('임시 저장 성공, documentId:', documentId)
 
                     // 발행 요청
+                    const publishData = {
+                        ...requestData,
+                        documentModel: JSON.stringify({
+                            ...JSON.parse(requestData.documentModel),
+                            documentId: documentId
+                        })
+                    }
+
+                    console.log('=== 발행 시도 ===')
+                    return await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', publishData, { blogId })
+                }
+            } catch (parseError) {
+                console.error('Temp save response parsing error:', parseError)
+            }
+        }
+
+        return tempSaveResult
+    }
+
+    // 샘플 데이터로 글 작성 (curl 요청의 documentModel 사용)
+    async createSamplePost() {
+        console.log('Creating sample post from documentModel...')
+
+        // 샘플 documentModel 데이터 (curl 요청에서 추출)
+        const sampleDocumentModel = {
+            documentId: "",
+            document: {
+                version: "2.8.10",
+                theme: "default",
+                language: "ko-KR",
+                id: this.generateId(),
+                components: [
+                    {
+                        id: this.generateSEId(),
+                        layout: "default",
+                        title: [
+                            {
+                                id: this.generateSEId(),
+                                nodes: [
+                                    {
+                                        id: this.generateSEId(),
+                                        value: "샘플 글 제목",
+                                        style: {
+                                            fontFamily: "nanumbareunhipi",
+                                            "@ctype": "nodeStyle"
+                                        },
+                                        "@ctype": "textNode"
+                                    }
+                                ],
+                                "@ctype": "paragraph"
+                            }
+                        ],
+                        subTitle: null,
+                        align: "left",
+                        "@ctype": "documentTitle"
+                    },
+                    {
+                        id: this.generateSEId(),
+                        layout: "default",
+                        value: [
+                            {
+                                id: this.generateSEId(),
+                                nodes: [
+                                    {
+                                        id: this.generateSEId(),
+                                        value: "이것은 샘플 본문입니다. documentModel 데이터를 그대로 사용하여 작성한 글입니다.",
+                                        style: {
+                                            fontFamily: "nanumbareunhipi",
+                                            "@ctype": "nodeStyle"
+                                        },
+                                        "@ctype": "textNode"
+                                    }
+                                ],
+                                "@ctype": "paragraph"
+                            }
+                        ],
+                        "@ctype": "text"
+                    },
+                    {
+                        id: this.generateSEId(),
+                        layout: "quotation_line",
+                        value: [
+                            {
+                                id: this.generateSEId(),
+                                nodes: [
+                                    {
+                                        id: this.generateSEId(),
+                                        value: "이것은 인용문 샘플입니다.",
+                                        "@ctype": "textNode"
+                                    }
+                                ],
+                                "@ctype": "paragraph"
+                            }
+                        ],
+                        source: null,
+                        "@ctype": "quotation"
+                    },
+                    {
+                        id: this.generateSEId(),
+                        layout: "large_image",
+                        title: "YouTube",
+                        domain: "www.youtube.com",
+                        link: "https://www.youtube.com",
+                        thumbnail: {
+                            src: "https://www.youtube.com/img/desktop/yt_1200.png",
+                            width: 1200,
+                            height: 1200,
+                            "@ctype": "thumbnail"
+                        },
+                        description: "YouTube에서 마음에 드는 동영상과 음악을 감상하고, 직접 만든 콘텐츠를 업로드하여 친구, 가족뿐만 아니라 전 세계 사람들과 콘텐츠를 공유할 수 있습니다.",
+                        video: false,
+                        oglinkSign: "Ub2GJaay33GnzOcInKXBCIubN2t5LrWC7is7G-rP_-A__v1.0",
+                        "@ctype": "oglink"
+                    },
+                    {
+                        id: this.generateSEId(),
+                        layout: "default",
+                        src: "https://cdn.pixabay.com/photo/2021/10/21/14/03/cats-6729197_1280.jpg",
+                        internalResource: false,
+                        represent: false,
+                        domain: "https://blogfiles.pstatic.net",
+                        fileSize: 0,
+                        width: 693,
+                        widthPercentage: 0,
+                        height: 924,
+                        originalWidth: 960,
+                        originalHeight: 1280,
+                        caption: null,
+                        format: "normal",
+                        displayFormat: "normal",
+                        imageLoaded: true,
+                        contentMode: "fit",
+                        origin: {
+                            srcFrom: "copyUrl",
+                            "@ctype": "imageOrigin"
+                        },
+                        ai: false,
+                        "@ctype": "image"
+                    }
+                ],
+                di: {
+                    dif: false,
+                    dio: [
+                        {
+                            dis: "N",
+                            dia: {
+                                t: 0,
+                                p: 0,
+                                st: 318,
+                                sk: 93
+                            }
+                        },
+                        {
+                            dis: "N",
+                            dia: {
+                                t: 0,
+                                p: 0,
+                                st: 318,
+                                sk: 93
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+
+        try {
+            const result = await this.sendBlogAPIRequestWithDocumentModel(sampleDocumentModel)
+            console.log('Sample post creation result:', result)
+
+            if (result.success) {
+                alert('샘플 글이 성공적으로 작성되었습니다!')
+            } else {
+                alert('샘플 글 작성에 실패했습니다: ' + (result.message || '알 수 없는 오류'))
+            }
+        } catch (error) {
+            console.error('Sample post creation error:', error)
+            alert('샘플 글 작성 중 오류가 발생했습니다: ' + error.message)
+        }
+    }
+
+    // 마크다운 샘플 파일로 글 작성
+    async createSamplePostFromMarkdown() {
+        console.log('Creating sample post from markdown file...')
+
+        // sample.md 파일 내용
+        const sampleMarkdown = `# 블로그 글 작성 예시
+
+이것은 일본 본문입니다. 여러 문장으로 구성된 단락입니다. 마크다운 형식으로 작성하면 네이버 블로그에 자동으로 변환됩니다.
+
+두 번째 단락입니다. 인용문, YouTube 링크, 이미지 링크를 포함한 다양한 요소들을 테스트해볼 수 있습니다.
+
+> 이것은 인용문입니다. 블로그에서 중요한 내용을 강조할 때 사용합니다. 여러 줄에 걸친 인용문도 가능합니다.
+
+[YouTube 링크 예시](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[고양이 이미지](https://cdn.pixabay.com/photo/2021/10/21/14/03/cats-6729197_1280.jpg)
+
+마지막 단락입니다. 모든 요소가 잘 변환되는지 확인해보세요!`
+
+        try {
+            const parsed = this.parseMarkdown(sampleMarkdown)
+            const components = this.convertToNaverBlogFormat(parsed.title, parsed.paragraphs)
+
+            console.log('Sample markdown parsed:', parsed)
+            console.log('Converted components:', components)
+
+            const result = await this.sendBlogAPIRequestWithData(components)
+            console.log('Sample markdown post creation result:', result)
+
+            if (result.success) {
+                alert('마크다운 샘플 글이 성공적으로 작성되었습니다!')
+            } else {
+                alert('마크다운 샘플 글 작성에 실패했습니다: ' + (result.message || '알 수 없는 오류'))
+            }
+        } catch (error) {
+            console.error('Sample markdown post creation error:', error)
+            alert('마크다운 샘플 글 작성 중 오류가 발생했습니다: ' + error.message)
+        }
+    }
+
+    // documentModel을 직접 사용하여 API 요청 전송
+    async sendBlogAPIRequestWithDocumentModel(documentModel) {
+        // 동적으로 블로그 ID 확보
+        let blogId = this.userBlogId || null
+        if (!blogId && this.webview) {
+            try {
+                blogId = await this.webview.executeJavaScript(`(function(){
+                    try {
+                        const systemPages = ['PostView.naver', 'RabbitWrite.naver', 'postwrite', 'BlogHome.naver', 'BlogMenuBar.naver', 'BlogView.naver'];
+
+                        // 일반 블로그 URL에서 추출
+                        const m = (window.location.href || '').match(/blog\\.naver\\.com\\/([^\\/\\?]+)/);
+                        if (m && m[1] && !systemPages.includes(m[1])) {
+                            return m[1];
+                        }
+
+                        // section.blog.naver.com에서 blogId 파라미터 추출
+                        const sectionMatch = (window.location.href || '').match(/section\\.blog\\.naver\\.com.*[?&]blogId=([a-zA-Z0-9_-]+)/);
+                        if (sectionMatch && sectionMatch[1]) {
+                            return sectionMatch[1];
+                        }
+
+                        return null;
+                    } catch(e){ return null; }
+                })();`)
+            } catch (_) {
+                blogId = null
+            }
+        }
+
+        if (!blogId) {
+            return { success: false, message: '블로그 ID를 찾을 수 없습니다. 블로그 홈으로 이동한 뒤 다시 시도해주세요.' }
+        }
+
+        const populationParams = {
+            configuration: {
+                openType: 0,
+                commentYn: true,
+                searchYn: false,
+                sympathyYn: false,
+                scrapType: 0,
+                outSideAllowYn: false,
+                twitterPostingYn: false,
+                facebookPostingYn: false,
+                cclYn: false
+            },
+            populationMeta: {
+                categoryId: 1,
+                logNo: 0,
+                directorySeq: 0,
+                directoryDetail: null,
+                mrBlogTalkCode: null,
+                postWriteTimeType: "now",
+                tags: "",
+                moviePanelParticipation: false,
+                greenReviewBannerYn: false,
+                continueSaved: false,
+                noticePostYn: false,
+                autoByCategoryYn: false,
+                postLocationSupportYn: false,
+                postLocationJson: null,
+                prePostDate: null,
+                thisDayPostInfo: null,
+                scrapYn: false,
+                autoSaveNo: Date.now()
+            },
+            editorSource: "4I0ix70hXGPBHQA2KadBEg=="
+        }
+
+        const requestData = {
+            blogId: blogId,
+            documentModel: JSON.stringify(documentModel),
+            mediaResources: JSON.stringify({ image: [], video: [], file: [] }),
+            populationParams: JSON.stringify(populationParams),
+            productApiVersion: 'v1'
+        }
+
+        console.log('=== Sample DocumentModel API Request Debug ===')
+        console.log('BlogId:', blogId)
+        console.log('DocumentModel:', documentModel)
+        console.log('RequestData keys:', Object.keys(requestData))
+
+        // 임시 저장 후 발행 시도
+        console.log('=== 임시 저장 시도 ===')
+        const tempSaveResult = await this.makeRequestFromWebview('https://blog.naver.com/RabbitWrite.naver', requestData, { blogId })
+
+        console.log('Temp save result:', tempSaveResult)
+
+        if (tempSaveResult.success && tempSaveResult.data) {
+            try {
+                const tempResponse = JSON.parse(tempSaveResult.data.trim())
+
+                if (tempResponse.isSuccess && tempResponse.result && tempResponse.result.documentId) {
+                    const documentId = tempResponse.result.documentId
+                    console.log('임시 저장 성공, documentId:', documentId)
+
                     const publishData = {
                         ...requestData,
                         documentModel: JSON.stringify({
