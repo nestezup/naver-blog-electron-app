@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer } = require('electron')
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 const electronAPI = {
+  // Authentication management
+  logout: () => ipcRenderer.invoke('logout'),
+  checkAuth: () => ipcRenderer.invoke('check-auth'),
+
   // Cookie management
   getCookies: (url) => ipcRenderer.invoke('get-cookies', url),
   setCookie: (url, cookie) => ipcRenderer.invoke('set-cookie', url, cookie),

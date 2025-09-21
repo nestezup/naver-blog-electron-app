@@ -19,17 +19,17 @@ class MainWindow {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        webSecurity: false, // Allow CDN access
+        webSecurity: true,
         preload: join(__dirname, 'preload.js'),
         webviewTag: true, // Enable webview tag
-        allowRunningInsecureContent: true,
+        allowRunningInsecureContent: false,
       },
       titleBarStyle: 'default',
       show: false, // Don't show until ready
     })
 
-    // Load the renderer
-    this.window.loadFile(join(__dirname, '../app/renderer/index.html'))
+    // Load the appropriate renderer based on authentication status
+    this.loadAppropriateRenderer()
 
     if (isDev) {
       this.window.webContents.openDevTools()
@@ -52,7 +52,7 @@ class MainWindow {
   configureSession() {
     const ses = session.defaultSession
 
-    // Allow webview to access blog.naver.com
+    // Set CSP to allow CDN scripts
     ses.webRequest.onHeadersReceived((details, callback) => {
       const responseHeaders = { ...details.responseHeaders }
 
@@ -60,18 +60,76 @@ class MainWindow {
       delete responseHeaders['x-frame-options']
       delete responseHeaders['X-Frame-Options']
 
+      // Add CSP header for local resources
+      if (details.url.startsWith('file:')) {
+        const csp = [
+          "default-src 'self' blob: data: https://* http://*",
+          "script-src 'self' 'unsafe-eval'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' blob: data: https://* http://*",
+          "font-src 'self' data:",
+          "connect-src 'self' blob: data: https://* http://*",
+          "frame-src 'self' https://* http://*"
+        ].join('; ')
+
+        responseHeaders['content-security-policy'] = [csp]
+      }
+
       callback({ responseHeaders })
+    })
+
+    ses.webRequest.onErrorOccurred((details) => {
+      console.error('Network request error:', {
+        url: details.url,
+        error: details.error,
+        method: details.method,
+        resourceType: details.resourceType,
+        ip: details.ip,
+        fromCache: details.fromCache,
+        netError: details.errorCode,
+      })
+    })
+
+    ses.webRequest.onBeforeSendHeaders((details, callback) => {
+      if (details.url.includes('identitytoolkit.googleapis.com')) {
+        console.log('Firebase request headers:', {
+          url: details.url,
+          method: details.method,
+          headers: details.requestHeaders,
+        })
+      }
+      callback({ requestHeaders: details.requestHeaders })
     })
 
     // Handle certificate errors for HTTPS
     ses.setCertificateVerifyProc((request, callback) => {
-      // For naver.com domains, allow certificates
-      if (request.hostname.includes('naver.com')) {
-        callback(0) // Allow
-      } else {
-        callback(-2) // Use default verification
+      const allowList = [
+        'naver.com',
+        'googleapis.com',
+        'gstatic.com',
+        'firebaseapp.com',
+        'firebaseio.com',
+        'googleusercontent.com',
+      ]
+
+      const isAllowed = allowList.some((domain) =>
+        request.hostname === domain || request.hostname.endsWith(`.${domain}`),
+      )
+
+      if (isAllowed) {
+        callback(0) // Explicitly trust allow-listed domains
+        return
       }
+
+      callback(-2) // Fallback to Chromium's default verification
     })
+  }
+
+  loadAppropriateRenderer() {
+    // For now, always load the auth screen first
+    // The auth screen will handle redirecting to main app if user is authenticated
+    console.log('Loading authentication screen...');
+    this.window.loadFile(join(__dirname, '../app/renderer/auth.html'));
   }
 
   getWindow() {
@@ -81,6 +139,32 @@ class MainWindow {
 
 // IPC handlers
 function setupIPC() {
+  // Authentication management
+  ipcMain.handle('logout', async (event) => {
+    try {
+      // Clear session data
+      await session.defaultSession.clearStorageData({
+        storages: ['cookies', 'localStorage', 'sessionStorage', 'indexedDB']
+      });
+
+      console.log('User logged out successfully');
+      return { success: true };
+    } catch (error) {
+      console.error('Logout error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('check-auth', async (event) => {
+    try {
+      // For now, always return false - auth screen will handle the actual authentication
+      return { authenticated: false };
+    } catch (error) {
+      console.error('Auth check error:', error);
+      return { authenticated: false, error: error.message };
+    }
+  });
+
   // Cookie management
   ipcMain.handle('get-cookies', async (event, url) => {
     try {

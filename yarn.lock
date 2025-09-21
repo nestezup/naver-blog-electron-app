@@ -936,7 +936,7 @@ color-name@~1.1.4:
   resolved "https://registry.yarnpkg.com/color-name/-/color-name-1.1.4.tgz#c2a09a87acbde69543de6f63fa3995c826c536a2"
   integrity sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==
 
-daisyui@^5.1.13:
+daisyui@5.1.13:
   version "5.1.13"
   resolved "https://registry.yarnpkg.com/daisyui/-/daisyui-5.1.13.tgz#88354e9209c256ed0690948e0bc00bd423b3e5d2"
   integrity sha512-KWPF/4R+EHTJRqKZFNmSDPfAZ5xeS6YWB/2kS7Y6wGKg+atscUi2DOp6HoDD/OgGML0PJTtTpgwpTfeHVfjk7w==

@@ -1,19 +1,5 @@
 // Simple Naver Blog Electron App
 
-// Firebase 인증 모듈 import (ESM 모듈 지원되는 환경에서만 작동)
-let firebaseAuth = null;
-
-// 동적으로 import 시도
-async function loadFirebaseAuth() {
-    try {
-        const module = await import('../../src/firebase-auth.js');
-        firebaseAuth = module.default;
-        console.log('Firebase auth module loaded');
-    } catch (error) {
-        console.warn('Firebase auth module not available:', error);
-    }
-}
-
 class App {
     constructor() {
         this.webview = null
@@ -21,17 +7,17 @@ class App {
         this.cookies = {}
         this.isLoggedIn = false
         this.userBlogId = null
-        this.firebaseUser = null
-        this.authMode = 'login' // 'login' or 'signup'
         this.init()
     }
 
     init() {
+        // Check if user is authenticated
+        this.checkAuthentication();
+
         this.webview = document.getElementById('blogWebview')
         this.setupEventListeners()
         this.setupWebView()
-        this.setupFirebaseAuth()
-        this.loadFirebaseUserFromStorage()
+        this.setupBlogIdModalEvents()
     }
 
     setupEventListeners() {
@@ -59,27 +45,18 @@ class App {
             }
         })
 
-        // Theme toggle
-        document.getElementById('toggleTheme').addEventListener('click', () => {
-            const html = document.documentElement
-            const currentTheme = html.getAttribute('data-theme')
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark'
-            html.setAttribute('data-theme', newTheme)
+        // User profile and logout
+        document.getElementById('userProfileBtn').addEventListener('click', () => {
+            this.showUserProfileModal()
+        })
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            this.handleLogout()
         })
 
         // Blog post creation
         document.getElementById('createPost').addEventListener('click', () => {
             this.createBlogPost()
-        })
-
-        // Cookie refresh
-        document.getElementById('refreshCookies').addEventListener('click', () => {
-            this.extractCookies()
-        })
-
-        // Blog ID management
-        document.getElementById('saveBlogId').addEventListener('click', () => {
-            this.saveBlogId()
         })
 
         document.getElementById('goToMyBlog').addEventListener('click', () => {
@@ -89,10 +66,6 @@ class App {
         // Markdown post creation
         document.getElementById('createPostFromMarkdown').addEventListener('click', () => {
             this.createPostFromMarkdown()
-        })
-
-        document.getElementById('previewMarkdown').addEventListener('click', () => {
-            this.previewMarkdown()
         })
 
         // Sample post creation
@@ -106,11 +79,40 @@ class App {
 
         // Load saved blog ID on startup (with delay for DOM)
         setTimeout(() => {
-            this.loadSavedBlogId()
-        }, 100)
+            this.syncBlogIdFromStorage()
+        }, 200)
     }
 
-    setupWebView() {
+    async checkAuthentication() {
+        try {
+            const cachedAuth = localStorage.getItem('firebaseAuth');
+            if (cachedAuth === 'true') {
+                console.log('User authenticated via local flag, loading main app');
+                return true;
+            }
+
+            if (window.electronAPI?.checkAuth) {
+                const result = await window.electronAPI.checkAuth();
+                if (result?.authenticated) {
+                    console.log('User authenticated via IPC check, loading main app');
+                    localStorage.setItem('firebaseAuth', 'true');
+                    return true;
+                }
+            }
+
+            console.log('No authenticated session detected, redirecting to auth screen');
+            localStorage.removeItem('firebaseAuth');
+            window.location.href = 'auth.html';
+            return false;
+        } catch (error) {
+            console.error('Authentication check failed:', error);
+            localStorage.removeItem('firebaseAuth');
+            window.location.href = 'auth.html';
+            return false;
+        }
+    }
+
+  setupWebView() {
         if (!this.webview) return
 
         console.log('Setting up webview events')
@@ -261,6 +263,8 @@ class App {
             loginText.textContent = '로그인되지 않음'
             this.userBlogId = null
         }
+
+        this.updateBlogIdUI(this.userBlogId)
     }
 
     toggleSidebar() {
@@ -1099,122 +1103,196 @@ class App {
     }
 
     // Blog ID Management Methods
-    saveBlogId() {
-        const blogIdInput = document.getElementById('blogIdInput')
-        const blogId = blogIdInput.value.trim()
-
-        if (!blogId) {
-            alert('블로그 ID를 입력해주세요.')
-            return
-        }
-
-        // 간단한 블로그 ID 유효성 검사
-        if (!/^[a-zA-Z0-9_-]+$/.test(blogId)) {
-            alert('블로그 ID는 영문, 숫자, _, - 만 사용할 수 있습니다.')
-            return
-        }
-
+    getCurrentFirebaseUser() {
         try {
-            // localStorage에 저장 (여러 방식으로 시도)
-            localStorage.setItem('userBlogId', blogId)
-
-            // 세션 스토리지에도 백업 저장
-            sessionStorage.setItem('userBlogId', blogId)
-
-            // 메모리에도 저장
-            this.userBlogId = blogId
-
-            console.log('Blog ID saved to localStorage:', blogId)
-            console.log('Blog ID saved to sessionStorage:', blogId)
-            console.log('Blog ID saved to memory:', this.userBlogId)
-
-            // 저장 확인
-            const saved = localStorage.getItem('userBlogId')
-            if (saved === blogId) {
-                alert(`블로그 ID "${blogId}"가 성공적으로 저장되었습니다.`)
-            } else {
-                alert(`저장 실패: localStorage에 저장되지 않았습니다. 메모리에만 저장됩니다.`)
+            if (typeof firebaseAuth !== 'undefined') {
+                const liveUser = firebaseAuth.getCurrentUser?.();
+                if (liveUser) {
+                    return liveUser;
+                }
+                const storedUser = firebaseAuth.getUserFromLocalStorage?.();
+                if (storedUser) {
+                    return storedUser;
+                }
             }
-
-            // 로그인 상태 업데이트
-            this.updateLoginStatus()
         } catch (error) {
-            console.error('Storage error:', error)
-            // localStorage 실패시 메모리에만 저장
-            this.userBlogId = blogId
-            alert(`블로그 ID "${blogId}"가 메모리에 저장되었습니다. (영구 저장 실패)`)
+            console.warn('Failed to read Firebase user info:', error);
+        }
+        return null;
+    }
+
+    getBlogSettingsStore() {
+        try {
+            return JSON.parse(localStorage.getItem('firebaseBlogSettings') || '{}') || {};
+        } catch (error) {
+            console.warn('Failed to parse firebaseBlogSettings from storage:', error);
+            return {};
         }
     }
 
-    loadSavedBlogId() {
+    saveBlogSettingsStore(store) {
         try {
-            // localStorage에서 먼저 시도
-            let savedBlogId = localStorage.getItem('userBlogId')
-
-            // localStorage가 실패하면 sessionStorage에서 시도
-            if (!savedBlogId) {
-                savedBlogId = sessionStorage.getItem('userBlogId')
-            }
-
-            if (savedBlogId) {
-                const blogIdInput = document.getElementById('blogIdInput')
-                if (blogIdInput) {
-                    blogIdInput.value = savedBlogId
-                }
-                this.userBlogId = savedBlogId
-                console.log('Loaded saved blog ID:', savedBlogId)
-                console.log('From localStorage:', localStorage.getItem('userBlogId'))
-                console.log('From sessionStorage:', sessionStorage.getItem('userBlogId'))
-            } else {
-                console.log('No saved blog ID found')
-            }
+            localStorage.setItem('firebaseBlogSettings', JSON.stringify(store));
         } catch (error) {
-            console.error('Error loading saved blog ID:', error)
+            console.warn('Failed to persist firebaseBlogSettings:', error);
         }
+    }
+
+    getStoredBlogIdForUser(uid) {
+        if (!uid) {
+            return null;
+        }
+        const store = this.getBlogSettingsStore();
+        const entry = store[uid];
+        if (entry && typeof entry.blogId === 'string') {
+            return entry.blogId;
+        }
+        return null;
+    }
+
+    setStoredBlogIdForUser(uid, blogId) {
+        if (!uid) {
+            return;
+        }
+        const store = this.getBlogSettingsStore();
+
+        if (blogId) {
+            store[uid] = {
+                blogId,
+                updatedAt: Date.now(),
+            };
+        } else {
+            delete store[uid];
+        }
+
+        this.saveBlogSettingsStore(store);
+        this.userBlogId = blogId || null;
+        this.updateBlogIdUI(this.userBlogId);
+    }
+
+    syncBlogIdFromStorage() {
+        const firebaseUser = this.getCurrentFirebaseUser();
+        let blogId = null;
+
+        if (firebaseUser?.uid) {
+            blogId = this.getStoredBlogIdForUser(firebaseUser.uid);
+        }
+
+        if (!blogId) {
+            const legacy = localStorage.getItem('userBlogId') || sessionStorage.getItem('userBlogId');
+            if (legacy) {
+                blogId = legacy;
+                if (firebaseUser?.uid) {
+                    this.setStoredBlogIdForUser(firebaseUser.uid, legacy);
+                }
+            }
+        }
+
+        this.userBlogId = blogId || null;
+        this.updateBlogIdUI(this.userBlogId);
+    }
+
+    updateBlogIdUI(blogId) {
+        const displayValue = blogId || '미설정';
+
+        const sidebarDisplay = document.getElementById('sidebarBlogId');
+        if (sidebarDisplay) {
+            sidebarDisplay.textContent = displayValue;
+        }
+
+        const profileDisplay = document.getElementById('profileBlogIdValue');
+        if (profileDisplay) {
+            profileDisplay.textContent = displayValue;
+        }
+
+        if (this.isLoggedIn) {
+            const loginText = document.getElementById('loginText');
+            if (loginText) {
+                loginText.textContent = blogId ? `로그인됨 (${blogId})` : '로그인됨';
+            }
+        }
+    }
+
+    async handleBlogIdEdit() {
+        const firebaseUser = this.getCurrentFirebaseUser();
+        if (!firebaseUser || !firebaseUser.uid) {
+            alert('Firebase 계정 정보가 필요합니다. 로그인 상태를 확인해주세요.');
+            return;
+        }
+
+        const modal = this.blogIdModal || document.getElementById('blogIdModal');
+        const input = this.blogIdModalInput || document.getElementById('blogIdModalInput');
+        if (!modal || !input) {
+            alert('블로그 ID 설정 창을 불러오지 못했습니다.');
+            return;
+        }
+
+        const currentBlogId = this.getStoredBlogIdForUser(firebaseUser.uid) || '';
+        input.value = currentBlogId;
+
+        modal.classList.remove('hidden');
+        modal.classList.add('modal-open');
+    }
+
+    closeBlogIdModal() {
+        const modal = this.blogIdModal || document.getElementById('blogIdModal');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('modal-open');
+    }
+
+    handleBlogIdModalSave() {
+        const firebaseUser = this.getCurrentFirebaseUser();
+        if (!firebaseUser || !firebaseUser.uid) {
+            alert('Firebase 계정 정보가 필요합니다. 로그인 상태를 확인해주세요.');
+            return;
+        }
+
+        const input = this.blogIdModalInput || document.getElementById('blogIdModalInput');
+        if (!input) {
+            alert('입력 필드를 찾을 수 없습니다.');
+            return;
+        }
+
+        const trimmed = input.value.trim();
+
+        if (!trimmed) {
+            this.setStoredBlogIdForUser(firebaseUser.uid, null);
+            localStorage.removeItem('userBlogId');
+            sessionStorage.removeItem('userBlogId');
+            this.closeBlogIdModal();
+            alert('블로그 ID 설정이 초기화되었습니다.');
+            return;
+        }
+
+        if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+            alert('블로그 ID는 영문, 숫자, -, _ 만 사용할 수 있습니다.');
+            return;
+        }
+
+        this.setStoredBlogIdForUser(firebaseUser.uid, trimmed);
+        localStorage.setItem('userBlogId', trimmed); // 레거시 호환
+        sessionStorage.setItem('userBlogId', trimmed);
+        this.closeBlogIdModal();
+        alert(`블로그 ID가 "${trimmed}"(으)로 설정되었습니다.`);
     }
 
     goToMyBlog() {
-        // 먼저 최신 저장된 블로그 ID를 다시 로드
-        this.loadSavedBlogId()
-
-        console.log('Current userBlogId in memory:', this.userBlogId)
-        console.log('localStorage userBlogId:', localStorage.getItem('userBlogId'))
-        console.log('sessionStorage userBlogId:', sessionStorage.getItem('userBlogId'))
+        this.syncBlogIdFromStorage();
 
         if (!this.userBlogId) {
-            const storedId = localStorage.getItem('userBlogId') || sessionStorage.getItem('userBlogId')
-            if (storedId) {
-                this.userBlogId = storedId
-                console.log('Found stored blog ID, setting to memory:', storedId)
-            } else {
-                alert('먼저 블로그 ID를 입력하고 저장해주세요.')
-                return
-            }
+            alert('블로그 ID가 설정되지 않았습니다. 사용자 정보에서 블로그 ID를 설정해주세요.');
+            return;
         }
 
         if (!this.webview) {
-            alert('WebView가 준비되지 않았습니다.')
-            return
+            alert('WebView가 준비되지 않았습니다.');
+            return;
         }
 
-        const blogUrl = `https://blog.naver.com/${this.userBlogId}`
-        console.log('Navigating to user blog:', blogUrl)
-        this.webview.src = blogUrl
-    }
-
-    // Markdown Functions
-    previewMarkdown() {
-        const markdownInput = document.getElementById('markdownInput')
-        const markdown = markdownInput.value.trim()
-
-        if (!markdown) {
-            alert('마크다운 내용을 입력해주세요.')
-            return
-        }
-
-        const parsed = this.parseMarkdown(markdown)
-        console.log('Parsed markdown:', parsed)
-        alert(`파싱된 결과:\n제목: ${parsed.title}\n단락 수: ${parsed.paragraphs.length}`)
+        const blogUrl = `https://blog.naver.com/${this.userBlogId}`;
+        console.log('Navigating to user blog:', blogUrl);
+        this.webview.src = blogUrl;
     }
 
     async createPostFromMarkdown() {
@@ -1236,7 +1314,7 @@ class App {
         })
 
         if (!this.userBlogId) {
-            alert('블로그 ID가 설정되지 않았습니다. 사이드바에서 블로그 ID를 입력해주세요.')
+            alert('블로그 ID가 설정되지 않았습니다. 사용자 정보에서 블로그 ID를 설정해주세요.')
             return
         }
 
@@ -2385,12 +2463,12 @@ class App {
     // Firebase 인증 설정
     async setupFirebaseAuth() {
         try {
-            await loadFirebaseAuth();
 
             if (firebaseAuth) {
                 // Firebase 인증 상태 리스너 설정
                 firebaseAuth.onAuthStateChanged((user) => {
                     this.updateFirebaseUI(user);
+                    this.syncBlogIdFromStorage();
                 });
 
                 // Firebase 인증 버튼 이벤트 리스너 설정
@@ -2400,6 +2478,8 @@ class App {
             } else {
                 console.log('Firebase auth not available');
             }
+
+            this.syncBlogIdFromStorage();
         } catch (error) {
             console.error('Firebase auth setup error:', error);
         }
@@ -2696,16 +2776,117 @@ class App {
             notification.remove();
         }, 3000);
     }
+
+    // User profile and logout methods
+    showUserProfileModal() {
+        const modal = document.getElementById('userProfileModal')
+        modal.classList.remove('hidden')
+        modal.classList.add('flex')
+
+        // Setup modal event listeners
+        this.setupUserProfileModalEvents()
+    }
+
+    hideUserProfileModal() {
+        const modal = document.getElementById('userProfileModal')
+        modal.classList.add('hidden')
+        modal.classList.remove('flex')
+    }
+
+    setupUserProfileModalEvents() {
+        const closeBtn = document.getElementById('closeUserProfileModal')
+        const closeProfileBtn = document.getElementById('closeProfileBtn')
+        const logoutBtn = document.getElementById('authLogoutBtn')
+        const editBlogIdBtn = document.getElementById('editBlogIdBtn')
+        const refreshCookiesBtn = document.getElementById('globalRefreshCookies')
+
+        // Remove existing event listeners
+        const newCloseBtn = closeBtn.cloneNode(true)
+        const newCloseProfileBtn = closeProfileBtn.cloneNode(true)
+        const newLogoutBtn = logoutBtn.cloneNode(true)
+        const newEditBlogIdBtn = editBlogIdBtn.cloneNode(true)
+        const newRefreshCookiesBtn = refreshCookiesBtn.cloneNode(true)
+
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn)
+        closeProfileBtn.parentNode.replaceChild(newCloseProfileBtn, closeProfileBtn)
+        logoutBtn.parentNode.replaceChild(newLogoutBtn, logoutBtn)
+        editBlogIdBtn.parentNode.replaceChild(newEditBlogIdBtn, editBlogIdBtn)
+        refreshCookiesBtn.parentNode.replaceChild(newRefreshCookiesBtn, refreshCookiesBtn)
+
+        // Add event listeners
+        newCloseBtn.addEventListener('click', () => this.hideUserProfileModal())
+        newCloseProfileBtn.addEventListener('click', () => this.hideUserProfileModal())
+        newLogoutBtn.addEventListener('click', () => this.handleLogout())
+        newEditBlogIdBtn.addEventListener('click', () => this.handleBlogIdEdit())
+        newRefreshCookiesBtn.addEventListener('click', () => this.extractCookies())
+    }
+
+    setupBlogIdModalEvents() {
+        const modal = document.getElementById('blogIdModal')
+        if (!modal) {
+            return
+        }
+
+        const input = document.getElementById('blogIdModalInput')
+        const saveBtn = document.getElementById('blogIdModalSave')
+        const cancelBtn = document.getElementById('blogIdModalCancel')
+
+        if (!saveBtn || !cancelBtn || !input) {
+            return
+        }
+
+        const newSaveBtn = saveBtn.cloneNode(true)
+        const newCancelBtn = cancelBtn.cloneNode(true)
+
+        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn)
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn)
+
+        newSaveBtn.addEventListener('click', () => this.handleBlogIdModalSave())
+        newCancelBtn.addEventListener('click', () => this.closeBlogIdModal())
+
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                this.closeBlogIdModal()
+            }
+        })
+
+        this.blogIdModal = modal
+        this.blogIdModalInput = input
+    }
+
+    async handleLogout() {
+        try {
+            console.log('Logging out...')
+
+            if (typeof firebaseAuth !== 'undefined' && firebaseAuth?.signOut) {
+                try {
+                    await firebaseAuth.signOut()
+                    console.log('Firebase auth session cleared')
+                } catch (firebaseError) {
+                    console.warn('Firebase signOut failed:', firebaseError)
+                }
+            }
+
+            const result = await window.electronAPI.logout()
+
+            if (result.success) {
+                console.log('Logout successful, redirecting to auth page...')
+                localStorage.removeItem('firebaseAuth')
+                window.location.href = 'auth.html?logout=1'
+            } else {
+                console.error('Logout failed:', result.error)
+                alert('로그아웃에 실패했습니다.')
+            }
+        } catch (error) {
+            console.error('Logout error:', error)
+            alert('로그아웃 중 오류가 발생했습니다.')
+        }
+        localStorage.removeItem('firebaseAuth')
+    }
 }
 
 // Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', async () => {
-    try {
-        await loadFirebaseAuth();
-        window.app = new App();
-        console.log('App initialized with Firebase');
-    } catch (error) {
-        console.error('App initialization error:', error);
-        window.app = new App(); // Firebase 없이도 앱은 실행
-    }
+document.addEventListener('DOMContentLoaded', () => {
+    window.app = new App();
+    console.log('App initialized');
 })

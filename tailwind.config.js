@@ -1,17 +1,20 @@
+import daisyui from "daisyui";
+
 /** @type {import('tailwindcss').Config} */
-module.exports = {
+export default {
   content: [
     "./app/renderer/**/*.{html,js}",
-    "./app/renderer/index.html",
-    "./app/renderer/js/**/*.js"
+    "./src/**/*.{js}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      animation: {
+        'spin-slow': 'spin 2s linear infinite',
+      }
+    },
   },
-  plugins: [
-    require('daisyui'),
-  ],
+  plugins: [daisyui],
   daisyui: {
-    themes: ["light", "dark"]
-  }
+    themes: ["light", "dark", "cupcake", "autumn"],
+  },
 }
